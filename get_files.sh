@@ -219,7 +219,13 @@ patch_ramdisk() {
     esac
 
     echo "building trustcache..."
-    find "${livemount}" -type f -exec codesign -d -vvv {} \; 2>&1 | grep -i cdhash= | cut -d= -f2- > "${FW_DIR}/all_hashes"
+
+    find "${livemount}" -type f -perm +111 \
+        \( -exec codesign -a arm64 -d -vvv {} \; -o -true \) \
+        \( -exec codesign -a arm64e -d -vvv {} \; -o -true \) \
+        \( -exec codesign -a arm64e.x1 -d -vvv {} \; -o -true \) \
+        2>&1 | grep -i cdhash= | cut -d= -f2- > "${FW_DIR}/all_hashes"
+
     "${BUILD_TC}" "${FW_DIR}/all_hashes" "${FW_DIR}/ramdisk.tc"
 }
 
