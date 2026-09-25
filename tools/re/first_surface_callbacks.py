@@ -313,11 +313,18 @@ def _install(target, interpreter, address, label, regs, limit,
 
 
 # (static VA, label, extra registers, hit limit, IOSurface register, decisive?)
+# Upstream of create_surface (docs/re/windowserver-first-surface.md,
+# docs/re/surface-cache-and-completion.md): UI_FS_SKS3 reached CADisplay with
+# a non-null main display but never entered create_surface/allocate_iosurface
+# before the A385 poll.  These two edges name whether render ran at all.
 USER_ENTRIES = [
     (0x18490d11c, "UIAPPLICATION_MAIN", "x0 x1 x2 x3", 8, None, False),
     (0x2244d0ba4, "SB_ADFL_ENTRY", "x0 x2", 8, None, False),
     (0x1843e2e58, "CADISPLAY_MAIN_ENTRY", "x0", 16, None, False),
     (0x1843e2e84, "CADISPLAY_MAIN_RETURN", "x0", 16, None, False),
+    (0x184776174, "SERVER_RENDER_UPDATE_ENTRY", "x0 x1 x2 x3", 32, None, False),
+    (0x1846820e4, "DISPLAY_ALLOCATE_SURFACE_ENTRY", "x0 x1 x2 x3", 16, None, False),
+    (0x18445b330, "IOMFB_UPDATE_SURFACE_ENTRY", "x0 x1 x2 x3", 16, None, False),
     (0x1847ae2cc, "CREATE_SURFACE_ENTRY", "x0 x1 x2 x3", 16, None, False),
     (0x18471bf38, "ALLOCATE_IOSURFACE_ENTRY", "x0 x1 x2 x3", 16, None, False),
     (0x1847ae314, "ALLOCATE_IOSURFACE_RETURN", "x0", 16, "x0", False),

@@ -56,7 +56,7 @@ def mapping_for_offset(path, offset):
                 return address + offset - file_off
     return None
 
-deadline = time.time() + 45
+deadline = time.time() + float(os.environ.get('RESOLVE_DEADLINE_SECS', '45'))
 files = [p for p in glob.glob(cache_glob)
          if os.path.isfile(p) and not p.endswith(('.a2s', '.symbols', '.map'))]
 attempts = []
