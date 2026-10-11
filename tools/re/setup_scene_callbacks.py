@@ -61,13 +61,21 @@ def on_checkpoint(frame, bp_loc, _dict):
     hit = HITS.get(breakpoint.GetID(), 0) + 1
     HITS[breakpoint.GetID()] = hit
     print("WELCOME_%s hit=%d t=%.3f thread=0x%x pc=0x%x lr=0x%x "
-          "x0=0x%x x1=0x%x x2=0x%x x3=0x%x" %
+          "pid=%d tpidr=0x%x sp=0x%x x0=0x%x x1=0x%x x2=0x%x x3=0x%x "
+          "x19=0x%x x20=0x%x x21=0x%x x22=0x%x" %
           (label, hit, time.time(), frame.GetThread().GetThreadID(),
            frame.GetPC(), frame.FindRegister("lr").GetValueAsUnsigned(),
+           process.GetProcessID(),
+           frame.FindRegister("tpidr_el1").GetValueAsUnsigned(),
+           frame.FindRegister("sp").GetValueAsUnsigned(),
            frame.FindRegister("x0").GetValueAsUnsigned(),
            frame.FindRegister("x1").GetValueAsUnsigned(),
            frame.FindRegister("x2").GetValueAsUnsigned(),
-           frame.FindRegister("x3").GetValueAsUnsigned()), flush=True)
+           frame.FindRegister("x3").GetValueAsUnsigned(),
+           frame.FindRegister("x19").GetValueAsUnsigned(),
+           frame.FindRegister("x20").GetValueAsUnsigned(),
+           frame.FindRegister("x21").GetValueAsUnsigned(),
+           frame.FindRegister("x22").GetValueAsUnsigned()), flush=True)
     if hit >= 4:
         breakpoint.SetEnabled(False)
     return False

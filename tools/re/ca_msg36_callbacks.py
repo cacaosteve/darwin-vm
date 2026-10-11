@@ -20,6 +20,9 @@ HITS = 0
 TOTAL_HITS = 0
 BP_ID = None
 INTERESTING_IDS = set()
+AFTER_LOCK_TRANSITION = os.environ.get(
+    "DVM_CA_MSG_AFTER_LOCK_TRANSITION", "0") == "1"
+TRANSITION_MARKER = os.environ.get("DVM_LOCK_GESTURE_TRANSITION_MARKER", "")
 for part in os.environ.get(
         "DVM_CA_MSG_IDS", "0x9c40,0x9c41,0x9c42,0x9c43,0x9c44,0x9c45,0x36"
 ).split(","):
@@ -69,6 +72,19 @@ def _write_event(payload):
 
 def on_break(frame, bp_loc, _dict):
     global HITS, TOTAL_HITS
+    if AFTER_LOCK_TRANSITION:
+        if not TRANSITION_MARKER or not os.path.isfile(TRANSITION_MARKER):
+            return False
+        try:
+            with open(TRANSITION_MARKER) as stream:
+                marker = json.load(stream)
+        except (OSError, json.JSONDecodeError):
+            return False
+        if (marker.get("for_user_gesture") != 1 or
+                marker.get("gesture_sequence_confirmed") is False or
+                (isinstance(marker.get("dismissal_gesture"), dict) and
+                 marker["dismissal_gesture"].get("confirmed") is False)):
+            return False
     process = frame.GetThread().GetProcess()
     sp = _reg(frame, "sp")
     if not sp:
@@ -87,7 +103,11 @@ def on_break(frame, bp_loc, _dict):
         return False
     HITS += 1
     size = words[1]
-    body_size = max(0, min(size - 24, 256))
+    capture_full_9c42 = (
+        message_id == 0x9c42 and
+        os.environ.get("DVM_CA_MSG_FULL_BODY_9C42") == "1"
+    )
+    body_size = max(0, min(size - 24, 4096 if capture_full_9c42 else 256))
     body = _read(process, sp + 0x68, body_size) if body_size else b""
     last_mut = None
     try:
@@ -114,6 +134,8 @@ def on_break(frame, bp_loc, _dict):
         "body_prefix_hex": body.hex(),
         "last_mutator": last_mut,
     }
+    if capture_full_9c42:
+        payload["body_full_hex"] = body.hex()
     print("=== CA_MSG_RECV hit=%d id=0x%x ===" % (HITS, message_id), flush=True)
     print("CA_MSG_RECV_JSON " + json.dumps(payload, sort_keys=True), flush=True)
     _write_event(payload)
@@ -134,7 +156,12 @@ def on_break(frame, bp_loc, _dict):
 
 def install(debugger, slide):
     global BP_ID, SLIDE, HITS, TOTAL_HITS
+    global AFTER_LOCK_TRANSITION, TRANSITION_MARKER
     SLIDE = int(slide)
+    AFTER_LOCK_TRANSITION = os.environ.get(
+        "DVM_CA_MSG_AFTER_LOCK_TRANSITION", "0") == "1"
+    TRANSITION_MARKER = os.environ.get(
+        "DVM_LOCK_GESTURE_TRANSITION_MARKER", "")
     HITS = 0
     TOTAL_HITS = 0
     target = debugger.GetSelectedTarget()

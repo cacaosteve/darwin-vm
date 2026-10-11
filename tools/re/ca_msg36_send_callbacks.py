@@ -57,6 +57,25 @@ SAMPLES = {}
 HITS = 0
 BP_IDS = {}
 LAST_SEND = {}
+AFTER_LOCK_TRANSITION = os.environ.get(
+    "DVM_CA_MSG_AFTER_LOCK_TRANSITION", "0") == "1"
+TRANSITION_MARKER = os.environ.get("DVM_LOCK_GESTURE_TRANSITION_MARKER", "")
+
+
+def _transition_gate_open():
+    if not AFTER_LOCK_TRANSITION:
+        return True
+    if not TRANSITION_MARKER or not os.path.isfile(TRANSITION_MARKER):
+        return False
+    try:
+        with open(TRANSITION_MARKER) as stream:
+            marker = json.load(stream)
+    except (OSError, json.JSONDecodeError):
+        return False
+    return (marker.get("for_user_gesture") == 1 and
+            marker.get("gesture_sequence_confirmed") is not False and
+            not (isinstance(marker.get("dismissal_gesture"), dict) and
+                 marker["dismissal_gesture"].get("confirmed") is False))
 
 
 def _reg(frame, name):
@@ -176,6 +195,20 @@ def _emit(frame, site, message_id, header, extra=None):
         "backtrace": [thread.GetFrameAtIndex(i).GetPC()
                       for i in range(min(thread.GetNumFrames(), 12))],
     }
+    if (site == "send_wrapper" and message_id == 0x9c42 and
+            os.environ.get("DVM_CA_MSG_FULL_BODY_9C42") == "1"):
+        # The message-ID store runs before the encoder has filled the packet
+        # body. At the send-wrapper entry, the complete message is ready but
+        # has not yet been handed to mach_msg; capture it here before server
+        # decoding can obscure whether geometry was already empty on the wire.
+        address = header.get("address")
+        size = header.get("size", 0)
+        if address and size >= 24:
+            error = lldb.SBError()
+            raw = process.ReadMemory(address, min(size, 4096), error)
+            if error.Success() and len(raw) >= 24:
+                payload["body_full_hex"] = raw[24:].hex()
+                payload["body_full_bytes"] = len(raw) - 24
     if extra:
         payload.update(extra)
     LAST_SEND[tpidr] = payload
@@ -192,6 +225,8 @@ def _emit(frame, site, message_id, header, extra=None):
 
 def on_msgid_store(frame, bp_loc, _dict):
     """Break at stp wzr,w9,[x24,#0x10] — w9 is the chosen msgh_id."""
+    if not _transition_gate_open():
+        return False
     name, group = _process_name(frame)
     if PROCESS_NAMES and name not in PROCESS_NAMES:
         return False
@@ -217,6 +252,8 @@ def on_msgid_store(frame, bp_loc, _dict):
 
 def on_send_wrapper(frame, bp_loc, _dict):
     """Break at send wrapper entry; x0 is the message buffer."""
+    if not _transition_gate_open():
+        return False
     name, group = _process_name(frame)
     if PROCESS_NAMES and name not in PROCESS_NAMES:
         return False
@@ -239,6 +276,8 @@ def on_send_wrapper(frame, bp_loc, _dict):
 
 def on_walk360_ret(frame, bp_loc, _dict):
     """After bl 0x18469aadc(ctx+0x360); x0 is walk node (or null)."""
+    if not _transition_gate_open():
+        return False
     name, group = _process_name(frame)
     if PROCESS_NAMES and name not in PROCESS_NAMES:
         return False
@@ -263,6 +302,8 @@ def on_walk360_ret(frame, bp_loc, _dict):
 
 def on_commit_call(frame, bp_loc, _dict):
     """Break at BL to msg builder — dump ctx slots that feed the send."""
+    if not _transition_gate_open():
+        return False
     name, group = _process_name(frame)
     if PROCESS_NAMES and name not in PROCESS_NAMES:
         return False
@@ -292,6 +333,30 @@ def on_commit_call(frame, bp_loc, _dict):
         "ctx_210": ctx_210,
         "ctx_228": ctx_228,
     }
+    if os.environ.get("DVM_CA_ENCODER_QUEUE_DUMP") == "1" and x0:
+        # send_message serializes the encoder's pending byte queue from
+        # [encoder+0x18, encoder+0x20). Snapshot it at the call site, before
+        # the builder consumes/resets that queue. Cap reads to keep LLDB
+        # callback latency and event size bounded.
+        queue_begin = _u64(process, x0 + 0x18)
+        queue_end = _u64(process, x0 + 0x20)
+        queue_bytes = (queue_end - queue_begin
+                       if queue_end >= queue_begin else None)
+        extra.update({
+            "encoder_object": x0,
+            "encoder_queue_begin": queue_begin,
+            "encoder_queue_end": queue_end,
+            "encoder_queue_bytes": queue_bytes,
+            "encoder_queue_limit": _u64(process, x0 + 0x28),
+            "encoder_aux_pointer": _u64(process, x0 + 0x30),
+            "encoder_aux_count": _u64(process, x0 + 0x38),
+        })
+        if queue_begin and queue_bytes is not None and queue_bytes <= 0x1000:
+            error = lldb.SBError()
+            raw = process.ReadMemory(queue_begin, queue_bytes, error)
+            if error.Success():
+                extra["encoder_queue_hex"] = raw.hex()
+                extra["encoder_queue_captured_bytes"] = len(raw)
     # Always emit a few samples so we learn whether commit is reached at all.
     if samples < 8 or slot_1e8 not in (None, 0, 0xffffffff):
         return _emit(frame, "commit_call", w1, {"message_id": w1}, extra)
@@ -300,6 +365,8 @@ def on_commit_call(frame, bp_loc, _dict):
 
 def on_send_global(frame, bp_loc, _dict):
     """Legacy global syscall filter — only when DVM_CA_MSG36_SEND_GLOBAL=1."""
+    if not _transition_gate_open():
+        return False
     process = frame.GetThread().GetProcess()
     name, group = _process_name(frame)
     if PROCESS_NAMES and name not in PROCESS_NAMES:
@@ -354,8 +421,13 @@ def _install_one(debugger, slide, static_address, label, callback_name):
 
 def install(debugger, slide):
     global SLIDE, HITS
+    global AFTER_LOCK_TRANSITION, TRANSITION_MARKER
     SLIDE = int(slide)
     HITS = 0
+    AFTER_LOCK_TRANSITION = os.environ.get(
+        "DVM_CA_MSG_AFTER_LOCK_TRANSITION", "0") == "1"
+    TRANSITION_MARKER = os.environ.get(
+        "DVM_LOCK_GESTURE_TRANSITION_MARKER", "")
     GROUP_NAMES.clear()
     THREAD_NAMES.clear()
     SAMPLES.clear()
