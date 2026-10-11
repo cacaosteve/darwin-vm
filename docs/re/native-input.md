@@ -649,3 +649,144 @@ The input-v6 disk boot and saved-state continuation reached native Home.
 separate `SETTINGS_V6_TRACE1` replay caught the fresh Preferences bitmap trap.
 Thus P now supplies a reproducible application-launch trigger; it does not
 make Settings stable.
+
+## Buffered lock-screen swipe follow-up (2026-10-09)
+
+P112's native v6 direct `T` gesture was acknowledged and reached BackBoard/SpringBoard but left the sampled screen on lock chrome. It serializes 21 motion samples, so the next lock-screen test uses `relay.py --backend recap --swipe ...` to buffer one ordinary gesture and play it through native Recap with short move durations. The ACK remains a submission marker; inspect a fresh post-gesture surface before deciding whether another action is appropriate. A passcode prompt requires user input and is not automated.
+
+#### PLUGIN119 legacy helper startup bound (2026-10-09)
+
+P119 started the legacy v6 `/usr/local/libexec/dvm-input` through the boot-time launchd bootstrap (PID 20), but it stayed at `DVM_INPUT_INITIALIZING` for a 40-minute run and never emitted `DVM_INPUT_READY` or an error. The host trigger required that readiness marker plus the post-shell observer and a non-null SpringBoard home entity; it sent no input. This is a helper readiness miss, not a touch result. The next attempt uses the sealed DVMI2 v12 helper child and QEMU's `DARWIN_INPUT_UART` status/ACK path; no legacy `DVMINPUT1` relay or helper bootstrap is used in that run.
+
+#### PLUGIN120 trust-cache mismatch and correction (2026-10-09)
+
+P120's v12 helper did not launch because the boot used the dev6 `system.tc` without the helper CDHash. Guest serial evidence shows repeated AMFI rejection of the ad-hoc signed `/usr/local/libexec/dvm-input`; QEMU status remained without a helper PID or `R` ready state, ACK counters stayed zero, and the host trigger sent no packets. This is not a swipe result.
+
+The installed helper at `/Users/steve/dvm-artifacts/bp-patched-dev6/input-v12-native/dvm-input` has CDHash `5135a276753e8b656e05651c91c20f4927a14c1e`, present in its one-entry `helper.tc`. Merging that cache into `/Users/steve/dvm-artifacts/bp-patched-dev6/system.tc` produced `/Users/steve/dvm-artifacts/bp-patched-dev6/input-v12-native/system-plus-dev6-input.tc`, SHA-256 `d60beb27dd6fc3726f205164842de245b9f4f6a2fa5e8bc40a95351a52fb7266` (3,939 entries). The next boot should use this merged cache and must observe DVMI2 state `R` before sending the single guarded upward swipe. A successful ACK still proves submission only; classify the screen from the resulting IOSurface. If a passcode keypad appears, stop and let the user enter it.
+
+#### PLUGIN128: Home and upward swipe delivered through DVMI2 to SpringBoard
+
+P128 used a fresh durable child of P127 and the merged, helper-trusted DVMI2 `system.tc`. The helper reached ready state. After readiness, the host sent one Home key and one ordinary upward swipe. Both commands were acknowledged without dispatch errors. The swipe reached SpringBoard `UI_EVENT` and `_UISystemGestureWindow`; hit-test returned `UISystemGestureView`, followed by `SPRINGBOARD_HID_EVENT`. Home input also preceded additional workspace and non-null home-entity callbacks. This establishes the guest input and UIKit system-gesture path, not that the system recognized an unlock.
+
+The pre/post Home, pre/post swipe, and final HMP frames remained the same uniform black 1179×2556 image (SHA-256 `d312521cf1e978b08337f0c936bdf71f2d7a61a3259dc5bd07792494c5cf42b9`). The compact P128 observer had no IOSurface sampler, and its status recorded zero DVMI2 presents/input-to-present samples. So P128 has no post-input compositor-pixel verdict. The next controlled run combines the validated SpringBoard input markers with the read-only `fb_swap_set_layer` IOSurface capture, enabled only after the swipe is ACKed. No passcode or text was entered. The durable child and complete evidence bundle are `ui-class16-refresh60-dm-lock-plugin128-min-home-unlock1.qcow2` and `recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN128_MIN_HOME_UNLOCK1/` under `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/`; `qemu-img check -U` passed.
+
+#### PLUGIN130 / PLUGIN131: Home-entity gate needed a longer wait
+
+P130 is not an input result: it used the render-only module and input-bootstrap profile by mistake, then was cancelled before sending input. P131 corrected the profile and acknowledged the Home key through the ready DVMI2 helper, with no ACK/dispatch failures. No non-null home entity arrived within the helper's 180-second deadline, so it withheld the swipe. However, the log later recorded `SB_HOME_ENTITY_INIT_ENTRY_RETURN` with non-null `x0` at `1791614769.679`, about 343 seconds after the Home command and before the run's observation ended. The previous helper cached the timeout result and did not re-evaluate it; the swipe stayed unattempted. P131's HMP image remained the uniform-black hash above; no post-input IOSurface was captured because the capture gate opens only for an ACKed gesture. The trigger now supports an explicit lock-screen fallback, but P132 uses the better-evidenced policy: wait up to 600 seconds for the delayed home entity and swipe only after it appears. No passcode or text was sent.
+
+P131's durable child and records are `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/ui-class16-refresh60-dm-lock-plugin131-home-unlock-render1.qcow2` and `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN131_HOME_UNLOCK_RENDER1/`; SHA-256 `b5ba0911db77dd10a2dd4c1adedc356b7bb82488238ffb1a0611bd1cb7d6ad17`, `qemu-img check -U` clean.
+
+#### PLUGIN132: delayed Home entity and acknowledged swipe
+
+P132 used a fresh durable P128 child, the accepted merged DVMI2 trust cache, `INPUT_BOOTSTRAP=0`, and the combined gated-render/input observer. It ACKed the Home key, then waited about 333 seconds for a non-null SpringBoard home entity before sending one ordinary upward swipe. The swipe was acknowledged and dispatched without errors; SpringBoard recorded `UI_EVENT`, `_UISystemGestureWindow` hit testing returned `UISystemGestureView`, and `SPRINGBOARD_HID_EVENT` ran. This is end-to-end input delivery to SpringBoard's system-gesture view, not proof that SpringBoard accepted or completed unlock.
+
+The pre/post swipe HMP frame hashes were identical and uniformly black (`d312521cf1e978b08337f0c936bdf71f2d7a61a3259dc5bd07792494c5cf42b9`). The gated IOSurface sampler wrote no event in the 300-second observation; CA commits occurred, while the armed backboardd render/swap sites did not log hits. P132 therefore leaves lock-gesture recognition and CA-to-display handoff unresolved. No passcode was entered. The durable child is `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/ui-class16-refresh60-dm-lock-plugin132-lockscreen-swipe1.qcow2` (SHA-256 `610d0298e8abd5d3ca6ad9c51fc7ad80e1775df422954a266dcce71d698a037e`), and `qemu-img check -U` passed. Evidence is in `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN132_LOCKSCREEN_SWIPE1/`.
+
+#### PLUGIN133: native swipe reached SpringBoard pan recognizers
+
+P133 is a fresh child of P132 with the accepted DVMI2 trust cache and `INPUT_BOOTSTRAP=0`. The Home command was ACKed. SpringBoard's non-null home entity returned about 319 seconds after shell-service return; only then did the helper send one upward swipe. The helper reports `home-and-swipe-acknowledged`, `home_entity_after_key=true`, `swipe.ok=true`, no dispatch failures, and unchanged frame hash `d312521cf1e978b08337f0c936bdf71f2d7a61a3259dc5bd07792494c5cf42b9`.
+
+SpringBoard's `UI_EVENT` hit test returned `UISystemGestureView`. Both `SBFluidSwitcherScreenEdgePanGestureRecognizer` and `SBCoverSheetScreenEdgePanGestureRecognizer` received `touchesBegan`; the latter received `touchesMoved`. No recognizer `shouldBegin` or home-gesture action was observed. A lock-screen-manager transition callback ran with `forUserGesture=0` and zero velocity, so it is not evidence that the swipe was accepted. HMP remained all black and no post-home IOSurface/render/swap sample was recorded. No passcode was sent.
+
+P133's durable child `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/ui-class16-refresh60-dm-lock-plugin133-lock-gesture1.qcow2` (SHA-256 `5415b4d4950aa79c9e7b0febada0f84858f1eb28111b0f77d841dd1e89db1ce9`) passed `qemu-img check -U`; records are in `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN133_LOCK_GESTURE1/`. The follow-up adds read-only UIKit recognizer `setState:`/`_shouldBegin` hooks for the observed classes. No passcode or model/fixture/SpringBoard/A408/scanout change was made; D572/D582 remain hypotheses.
+
+P134's `UIGestureRecognizer setState:` hook recorded three `x2=5` transitions, which the SDK defines as `UIGestureRecognizerStateFailed`: two from `SBCoverSheetScreenEdgePanGestureRecognizer`, one from `SBFluidSwitcherScreenEdgePanGestureRecognizer`. The input helper acknowledged and dispatched the swipe, and SpringBoard home-entity initialization was present. No UIKit `_shouldBegin` or SpringBoard gesture-acceptance/action callback ran. The touch reached SpringBoard, but UIKit failed both observed screen-edge recognizers before they began; the cause is still unknown. The framebuffer remained uniformly black. Next capture adds the Fluid subclass's state-setter caller and the `SBScreenEdgePanGestureRecognizer isLocationWithinGrabberActiveZone` result, with a follow-up swipe starting nearer the physical edge.
+
+P134 child `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/ui-class16-refresh60-dm-lock-plugin134-gesture-state1.qcow2` (SHA-256 `6dabcef60e9762d0385d3e428174972f5a4e1dacdacd2999b337d744ff60e7bd`) passed `qemu-img check -U`; records are in `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN134_GESTURE_STATE1/`. No passcode or model/fixture/SpringBoard/CLASS16/A408/scanout change was made; D572/D582 remain hypotheses.
+
+
+#### PLUGIN141 bottom-edge retry
+
+The initial P141 swipe began about 53 px above the active bottom edge and failed the edge recognizers. A second buffered DVMI2 swipe on the same boot started at `(589,2540)` and moved to `(589,500)` over 600 ms with 32 steps. The cover-sheet recognizer and system-gesture delegate returned true from `shouldBegin`; dismissal began, changed, and ended; the lock-screen transition recorded `forUserGesture=1`. SpringBoard then returned a non-null home entity. Input was delivered and the lock dismissal path ran, but HMP stayed uniformly black and the post-shell observer saw no backboardd render/swap or IOSurface event. This separates gesture acceptance from the still-missing visible-frame path. No passcode was entered.
+
+The durable child and complete evidence bundle are under `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/` as `ui-class16-refresh60-dm-lock-plugin141-gesture-center600ms1.qcow2` and `recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN141_GESTURE_CENTER600MS1/`. The event summary `events/bottom-center-swipe.json` records the accepted sequence and black-frame hash.
+
+
+#### PLUGIN142: input delivered; no visible frame or compositor handoff
+
+P142 completed the home key and one ordinary bottom-center swipe after its home-entity gate, then a second pause-aware bottom-center retry. The trigger swipe sent 34 records, received 34 ACKs, and dispatched 32 with no dispatch failures; the manual retry dispatched 31 with no failures. No user-gesture recognizer acceptance was recorded on this boot. The before/after HMP frame hashes remained the uniform-black `d312521cf1e978b08337f0c936bdf71f2d7a61a3259dc5bd07792494c5cf42b9`; the helper recorded zero presents and zero input-to-present samples.
+
+This boot's read-only QuartzCore trace recorded SpringBoard CA sends and backboardd receives for the `0x9c44`/`0x9c45` family, while all post-home renderer/display/swap/IOSurface hooks stayed quiet. The receive sample was bounded at 32 and does not join task-local port names across processes. The durable record is `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN142_CA_HANDOFF1/`; the durable child `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/ui-class16-refresh60-dm-lock-plugin142-ca-handoff1.qcow2` passed `qemu-img check -U`. No passcode was entered. Next is a scheduler and `render_for_time` trace, not another swipe-only run.
+
+#### PLUGIN147: Home entity and two swipes, no visible frame
+
+P147's trusted DVMI2 helper ACKed Home, then SpringBoard returned a non-null home entity. The first upward swipe `(589,2540)→(589,500)` sent 34 records, ACKed all 34, and dispatched 32 with no errors. A second bottom-edge retry dispatched 22 of 23 records without errors. The captured lock-screen transition had `forUserGesture=0`; dismissal was not confirmed. HMP stayed uniformly black before and after the input (`d312521cf1e978b08337f0c936bdf71f2d7a61a3259dc5bd07792494c5cf42b9`), and the 900-second post-input window had no IOSurface event or DVMI2 present/input-to-present sample. No passcode was entered. Durable records are `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN147_RENDER_GATE1/`; the child passed `qemu-img check -U`.
+
+#### PLUGIN161: ACKed Home and swipes without Home or gesture evidence
+
+P161 used the merged DVMI2 trust cache and acknowledged Home plus two bottom-edge swipes. The trigger did not see a non-null Home entity within its 180-second gate, so it exercised the lock-screen fallback. The first swipe and follow-up were delivered without helper dispatch errors, but both before/after frame hashes were the same uniform black image (`d312521cf1e978b08337f0c936bdf71f2d7a61a3259dc5bd07792494c5cf42b9`). The optional render trace caused LLDB to detach before later input, so those later events do not prove UIKit/SpringBoard gesture handling. This is not an unlock result. The observer-light P162 run restores a Home entity, but its selected module omits lock-gesture recognizer hooks; the next run must set `POST_SHELL_UI_MODULE=dm_post_shell_home_unlock_render_callbacks`.
+
+P161's durable child and records are `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/ui-class16-refresh60-dm-lock-plugin161-unlock-double1.qcow2` and `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN161_UNLOCK_DOUBLE1/`; `qemu-img check -U` passed.
+
+
+#### PLUGIN167: swipe attempt interrupted by host ACK timeout
+
+P167 ACKed the Home key and eventually observed SpringBoard's non-null Home entity, then began a 600 ms, 32-step bottom-center swipe. During serialized dispatch, the input helper left `R`; final status showed six dispatched operations, 21 pending wire bytes, one not-ready/overflow drop, and `guest_state=L`. The serial log records an input record unacknowledged for 10 guest seconds. There is no `DVMI2R L` or `DVM_HID_RECOVER` line, so the host-side L state is attributable to its ACK timeout; this run is not a SpringBoard gesture result. The frame remained uniform black. The trigger JSON's previous `home-acknowledged-home-entity-not-seen` label was inaccurate because the entity arrived during the 600-second gate; the result classifier now reports `home-entity-ready-swipe-incomplete` for this case. P168 removes the per-frame scheduler observer while preserving the input and gesture/present coverage to avoid repeating this instrumentation-heavy window.
+
+#### PLUGIN168 / PLUGIN169: corrected helper trust cache; P164-lineage bottom swipe rejected
+
+P168 is an input-setup miss: the launcher used `system.tc`, which lacks the installed DVMI2 helper CDHash, so the helper never became ready and the gated trigger sent nothing. P169 used the merged `system-plus-dev6-input.tc` on a fresh P164 child. The helper reached `R`; Home was ACKed and the non-null SpringBoard Home entity was observed. Its first swipe started too high. The exact P141 bottom-center retry `(589,2540)→(589,500)` (600 ms, 32 steps) then sent and ACKed all 38 records, dispatched 33 without errors, and had no coalescing. Despite correct input transport and geometry, the observed Cover Sheet recognizer entered Failed state (5), and no user-gesture dismissal transition followed. Thus this P164-lineage run did not unlock; P141 remains the separate successful-gesture reference on a P134 child.
+
+The trigger completed before an extra manual attempt was made. That manual command did not finish cleanly: the saved final status has `contact_sent=true`, `btn_down=true`, and a non-neutral Y coordinate. Do not interpret it as another complete swipe. The Power command used before the manual attempt was ACKed but did not change the displayed output. P169's child `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/ui-class16-refresh60-dm-lock-plugin169-unlock-present-twoswipe1.qcow2` (SHA-256 `31aee86d2153c82cf9ecffdeaa02c1a4259477c15c8759635deb44260d7ec397b`) and evidence under `recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN169_UNLOCK_PRESENT_TWOSWIPE1/` are durable; `qemu-img check -U` passed. No passcode or text was sent.
+
+#### PLUGIN170: accepted late swipe; framebuffer unchanged
+
+On a fresh P134 child, the Home key was ACKed and a non-null SpringBoard Home entity was observed. The first swipe and early retry did not dismiss the lock screen. The later bottom-edge swipe `(589,2540)→(589,500)` (600 ms, 32 steps) was fully ACKed and dispatched without errors; both edge recognizers allowed it, dismissal began/changed/ended, and the lock transition had `forUserGesture=1`. The helper ended with `contact_sent=false` and `btn_down=false`. An additional Home key was acknowledged after the accepted transition.
+
+The HMP frame was unchanged uniform black before/after the swipe and after the Home key (`d312521cf1e978b08337f0c936bdf71f2d7a61a3259dc5bd07792494c5cf42b9`). A backboardd IOSurface captured just before transition showed sparse lock chrome on black; no post-transition render/display/OGL chain or non-null surface swap followed. Input and gesture acceptance are proven; a visible Home/unlock is not. No passcode or text was sent.
+
+Durable child `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/ui-class16-refresh60-dm-lock-plugin170-p134-unlock-present1.qcow2` (SHA-256 `b152eba6a4c5641a8f4d498be99d680828d6a2d9eeedb1de30c5583add9198aa`) passed `qemu-img check -U`; the recovery bundle is `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN170_P134_UNLOCK_PRESENT1/`. P171 repeats the late gesture with QuartzCore scheduler tracing enabled.
+
+#### PLUGIN171: released contact and fully delivered bottom-edge retry
+
+P171's first upward swipe overlapped a debugger pause; the input helper/LLDB sequence lost coverage. The guest was resumed and the matching mouse-up was sent at the last absolute coordinates. A later bottom-edge swipe `(589,2540)→(589,500)` completed: all 37 transport records were ACKed, 33 operations reached HID dispatch, and dispatch failures/coalescing were zero. The helper ended ready with no contact/button held. Its before/after HMP frame hashes were identical uniform black. This proves delivery only; the gesture occurred after LLDB disconnect, so there is no SpringBoard gesture or post-gesture render verdict. Evidence: `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN171_P134_RENDER_DECISION1/events/followup-bottom-swipe.json` and `input-status-final.json`.
+
+
+P172's Home and swipe commands were acknowledged. SpringBoard emitted `LOCKSCREEN_GESTURE_TRANSITION` with `x3=1` for a user gesture, confirming accepted dismissal input. HMP remained uniformly black, so this is not an unlock/Home result. P173 delays its initial swipe until 180 seconds after the Home-entity gate and gates compositor probes on the accepted-transition marker. Durable P172 evidence is in `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN172_P134_UPDATE_GATE_MIN1/`.
+
+#### P188: acknowledged Home key and accepted swipe, unchanged black frame
+
+The native helper was ready and remained responsive. Its shell-gated Home key completed with three records acknowledged and no errors; SpringBoard later exposed a non-null Home entity. The bottom-edge swipe `(589,2540)→(589,500)` sent and acknowledged all 38 records; 33 reached HID dispatch with zero dispatch failure, coalescing, or not-ready drops. SpringBoard's Cover Sheet recognizer/delegate accepted the gesture and completed began/ended, followed by `LOCKSCREEN_GESTURE_TRANSITION` `x3=1` at `1791694519.803`. This is positive input/gesture evidence.
+
+The helper's later ordinary Home-key command also completed (three records acknowledged, no timeout), but the before/after HMP frame hashes were identical uniform black (`d312521cf1e978b08337f0c936bdf71f2d7a61a3259dc5bd07792494c5cf42b9`). Therefore the input path worked, while the visible Home result did not. No passcode was entered. Durable evidence is under `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN188_P182_SWIPE_SEQUENCE_PRESENT1/`.
+
+
+#### P190 — interrupted input was released; no gesture was scored
+
+P190's automated trigger sent Home but was manually stopped before its 900-second Home-entity wait expired. Two separate manual upward swipes encountered `VM not running` and are incomplete. QMP mouse-up cleanup left the input helper neutral: `contact_sent=false`, `btn_down=false`, `queue_len=0`, `inflight=0`, and `wire_pending=0`. No SpringBoard accepted-gesture marker followed. These are cleanup/coverage records only; P191 leaves the trigger and debugger attached and enables its built-in timeout swipe.
+
+
+#### P191 — no input sent because the guest input helper never became ready
+
+P191's slide resolver failed before LLDB or the post-shell input observer could attach. The input helper remained in state `L`, with no ACKs and no dispatched records; the trigger did not reach readiness and sent neither Home nor swipe. This is input setup coverage only, with no gesture verdict. Its helper-status and boot logs are preserved in the P191 recovery bundle.
+
+
+#### P192 — Home and swipe transport succeeded; framebuffer did not change
+
+P192 reached the shell-service-return gate and SpringBoard later created a non-null Home entity. The Home-key command after that entity, the initial bottom-edge swipe, a Home key after an accepted transition, and the follow-up bottom-edge swipe all returned `ok=true`; swipe dispatch counts were 33 each, with zero ACK failures, dispatch failures, or coalescing. The follow-up swipe reached the SpringBoard acceptance path (`HOME_GESTURE_PAN_SHOULD_BEGIN_RETURN=true`, Cover Sheet dismissal began, and `LOCKSCREEN_GESTURE_TRANSITION x3=1`, `for_user_gesture=1`). The helper's auxiliary sequence confirmation was false, so that field is not used as the acceptance verdict. The helper ended with no contact/button held and no guest restart. All available before/after and final frame hashes remained the same uniform black `d312521cf1e978b08337f0c936bdf71f2d7a61a3259dc5bd07792494c5cf42b9`; therefore input delivery and gesture acceptance worked, but no visible Home/unlocked screen resulted. No passcode or text was sent. Full trigger evidence is in the P192 recovery bundle.
+
+#### P195 — transport succeeded; user dismissal was not accepted
+
+P195 reached shell-service return and a non-null SpringBoard Home entity. The
+Home key and a full bottom-edge swipe were acknowledged; the swipe had 37/37
+ACKs and 33 HID dispatches with no dispatch failures or coalescing. The
+observed lock transition had `x3=0`, so this run does not prove a user-accepted
+dismissal. HMP before and after stayed at the uniform-black frame hash
+`d312521cf1e978b08337f0c936bdf71f2d7a61a3259dc5bd07792494c5cf42b9`. Later
+input attempts were interrupted by the runner/debugger and ended with a held
+contact; those attempts are incomplete and must not be counted. No passcode or
+text was sent. The durable input events and final helper status are in
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN195_P182_CA_MODE_SCHEDULER1/`.
+
+#### P227 — accepted Recap dismissal with full post-transition capture
+
+P227 used the corrected legacy input sequence: Home was acknowledged, the
+Home entity appeared, and a normalized bottom-to-upper Recap swipe was
+acknowledged and accepted by SpringBoard as a Cover Sheet dismissal
+(`for_user_gesture=1`, confirmed pan sequence). The helper stayed attached
+for 240 seconds after that transition and captured the final HMP frame before
+stopping the runner. The final frame remained uniformly black; this is a
+valid input/state-transition result, not a visible Home or passcode-unlock
+result. The accepted-transition JSON, complete relay log, and final frame
+are in
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN227_POSTHOME_MODETRACE1/`.

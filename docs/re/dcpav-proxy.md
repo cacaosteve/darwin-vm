@@ -5,6 +5,19 @@ Scope: the `DCPAVFamilyProxy` sub-drivers that bind to our EPIC announces
 trigger was `DCPAVRemoteSACControllerProxy failed to start` appearing as soon
 as `dcpav-sac-epic` is announced.
 
+**Status correction (2026-09-26):** the missing-`EPICLocation` diagnosis in
+section 2 was a real historical QEMU bug, fixed by QEMU commit `f90e74c`. The
+current QEMU source and binary include `EPICLocation="Embedded"`. GATE198
+observed a non-null `EPICLocation` lookup and a successful `DCPAVProxy::start`
+return on all 13 sampled calls. GATE199/201 then observed the seven-handler
+`DCPAVPowerControllerProxy` path, not the video-interface proxy. GATE203
+confirmed that the actual five-handler video proxy starts and registers, but
+no common message send or dispatch on that object occurs before BackBoard's
+mode query. That historical fix is not the current explanation for the
+missing `ColorElements` property.
+Section 5 below records the runtime confirmation; the remainder of this note
+preserves the original static explanation of the old startup failure.
+
 Address convention: every address below is an **unslid** kernelcache VA.
 `file_offset = VA - 0xfffffff007004000` (verified: the DCPAVFamilyProxy
 `__TEXT_EXEC` load command says `off=0x02aef4f0 addr=0xfffffff009af34f0`, and
@@ -119,7 +132,7 @@ one-entry table `0xfffffff0081cee40` = `{ handler 0xfffffff009af8a28
 | `9b0400c` | `workloop->addEventSource(gate)` | **return value ignored** |
 | `9b04038` | `this+0xf8 = thread_call_allocate_with_options(0xfffffff009b03b2c, this, 1, 1)` (`0xfffffff00ab50168`) | OOM |
 | `9b04060` | `IOService::start(provider)` (via `__ZTV9IOService`+0x10+0x2b0, got `0xfffffff0081d5558`) | never in practice |
-| **`9b040ac`** | `OSDynamicCast(OSString, provider->getProperty("EPICLocation"))` (slot 0x118 = `IORegistryEntry::getProperty(const char*)`, string `0xfffffff0078a29a5`, metaclass ptr `*0xfffffff007e59340` = `OSString::gMetaClass 0xfffffff00b6bdcc0`) | **the nub has no `EPICLocation` string -- this is us** |
+| `9b040ac` | `OSDynamicCast(OSString, provider->getProperty("EPICLocation"))` (slot 0x118 = `IORegistryEntry::getProperty(const char*)`, string `0xfffffff0078a29a5`, metaclass ptr `*0xfffffff007e59340` = `OSString::gMetaClass 0xfffffff00b6bdcc0`) | historically failed when the nub lacked this property; fixed in current QEMU as described above |
 | `9b04158` | `OSDynamicCast(OSNumber, provider->getProperty("EPICUnit"))` (`0xfffffff0078a29c4`, `OSNumber::gMetaClass 0xfffffff00b6bdba8`) | we already send `EPICUnit` as a 64-bit number, passes |
 | `9b041dc` | `this->vfunc[0x550](this, provider)` | never: `DCPAVProxy` slot 0x550 = `0xfffffff009af557c` = `mov w0,#1; ret` |
 | `9b04214` | `afkIface->vfunc[0x570](this, blkA, blkB, blkC)` = `AFKEndpointInterface::open(client, ...)` `0xfffffff008b6fb40` | see section 3 |
@@ -162,11 +175,11 @@ under its command gate. It builds a 64-byte header on the stack:
 at `0xfffffff0078a2198`, `+0xc = 0x69706378` (the `epic_service_call`
 magic), and calls `DCPAVProxy::sendMessage` (`0xfffffff009af37e0`). That
 runs a block through `IOCommandGate::runActionBlock`
-(`0xfffffff00b240704`) whose body (`0xfffffff009af3a14`) is
-`afkIface->vfunc[0x558](afkIface, 0xc0, NULL, msg, len, flags)` --
-`AFKEndpointInterface::sendCommand` (`0xfffffff008b70274`), which dispatches
-to `AFKEPInterfaceKextV2` slot 0x588 (`0xfffffff008b79b74`). The AP then
-waits for the response with a timeout (the
+(`0xfffffff00b240704`). The common send routine branches on bit 1 of the
+message flags: when set, its action calls `AFKEndpointInterface` slot `+0x558`
+(`sendCommand`); when clear, it enters helper `0xfffffff009b03928`, calls
+endpoint slot `+0x548`, and that dispatches to `AFKEPInterfaceKextV2` slot
+`+0x578`. The AP then waits for the response with a timeout (the
 `"AFKEPInterfaceKextV2::%s: command response timeout (%u ms) on %s,
 commandID:%u, EP:%s"` string at `0xfffffff00740aa5f` is reached from
 `0xfffffff008b77bd0`). `bootCompleteGated` reads back `msg+0x40` and the
@@ -174,7 +187,7 @@ send result, logs on error via `stringFromReturn` (slot 0x470), and start
 proceeds to `registerService(0)` either way.
 
 So the phases are, in order: (1) property -- cheap, blocks everything;
-then (3) a real command (`0xc0`, group 0 / command 7 / 16 bytes payload) that
+then (3) a real command (`0xc0`, group 0 / command 7 / 16-byte payload) that
 wants a response, which is where `docs/re/afk-epic-references.md` section 2.3
 takes over. Whether the AP also emits an `OPEN` report before that command
 is not settled here: the report sender is `0xfffffff008b8fdd4` (its tail at
@@ -195,11 +208,106 @@ same `DCPAVProxy::start`, so they all need `EPICLocation` too. The
 `dcpdp-*`/`dcpdptx-*`/`dcpmipi-*` classes live in other kexts and were not
 checked.
 
-## 5. How to confirm at runtime, if wanted
+## 5. Runtime confirmation and current boundary
 
-Break at `0xfffffff029b0421c` (the single return of `DCPAVProxy::start`)
-and read `w0`; or at `0xfffffff029af890c` (`cbz w0`) in the SAC start. A
-zero there with the announce as it is today is what this document predicts.
-If `w0` is 1 there and the SAC start still fails, dump `w0` at
-`0xfffffff029af8970` and `x0` (the workloop) at `0xfffffff029af8954`; that
-would contradict section 1 and needs the workloop's vtable dumped.
+GATE198 broke at the shared `DCPAVProxy::start` path and observed 13
+`EPICLocation` lookup results, all non-null, followed by 13 returns of `w0=1`.
+These are observed calls, not necessarily 13 unique endpoint objects. GATE199
+and GATE201 followed the seven-handler `DCPAVPowerControllerProxy` path at
+`0xfffffff009b091c0` (its first table entry is `SetRemoteDevicePower`). It
+called `registerService`, and static disassembly shows the method returns its
+saved successful base-start result. The breakpoint at `0xfffffff009b09218` is
+before `mov x0,x20`; there, `x0` is only the raw value left by the void
+`registerService` call, while `x20` holds the base-start result. Do not
+interpret that `x0` as an IOReturn. The exact subclass return site is
+`0xfffffff009b0921c`. Its distinct five-handler table at
+`0xfffffff0081d20e8` has `ForwardMessage`, `Terminate`,
+`FrameReceiveCallback`, `HPDCallback`, and `EDIDCallback`.
+
+GATE202 reached the video-proxy path but is invalid because its callback raised
+`UnboundLocalError` while formatting the base-start return. GATE203 fixed the
+callback and observed the runtime video vtable `0xfff0081d1990`, a five-handler
+base-start call returning `1`, the `registerService` call, and the subclass
+start return `1`. Hooks on common `DCPAVProxy::sendMessage` and
+`DCPAVProxy::handleCommand`, filtered to this vtable, did not fire before
+BackBoard's query. This confirms successful service startup but leaves the
+video-command trigger unresolved.
+
+Despite successful proxy startup, BackBoard still finds no
+`ColorElements` property on its selected `disp0` service (`0xe00002bc`). The
+armed IOAV `withProperties`, parser, and setter hooks did not fire in GATE199,
+and the QEMU log showed the AP open interface 4 but no AP command type `0xc0`
+on that interface before the mode query. Those runs did not trace the actual
+video proxy. GATE203 then confirmed that the five-handler video proxy starts
+and registers, but its common send/dispatch hooks stay quiet through the
+query. GATE204–209 broadened tracing to every DCPAV proxy and found successful
+`0xc0` sends on interfaces 1 (controller), 8 (SAC), and 10 (DP device). All
+sampled requests take the bit-1-clear path described above. Corrected GATE207
+payload reads showed zero-filled request payloads, and GATE209 found zero
+response bytes before parsing. Those replies are QEMU-generated probes, not
+real firmware semantics, so they do not explain the missing internal-panel
+`ColorElements` property. Interface 10 is a DCPDP-family DisplayPort path and
+should not be conflated with the internal panel. The remaining boundary is
+the IOAV property-publication owner and the real response schema for the AV
+controller/SAC exchanges.
+
+GATE221 and GATE224 disabled the external DPTX/HDCP announcements so the
+internal `dcpmipi-controller-epic` publish could complete. The AP decoded and
+matched it, `DCPMIPIControllerProxy::start` and `registerService` returned
+success, and QEMU observed `REPORT OPEN` on interface 12. Thus the earlier
+interface-16 no-open result was queue starvation, not a missing MIPI proxy.
+
+GATE223 corrected the common-message filter with
+`RFT_TRACE_DCPAV_ALL_MESSAGES=1`. It recorded the three known sends on the
+controller, SAC, and external DP-device proxies, with no common
+`handleCommand` and no send or dispatch on the five-handler video proxy. The
+same run showed no IOAV video child setup, property parser, or setter. GATE224
+added the IOAV interface-tracker entry, ID-compare, and conditional child-call
+sites; none ran before BackBoard's natural type-1 query.
+
+GATE225 separately confirmed AppleCLCD2 `start` on `disp0` returns success
+with its provider equal to its registry object, but the traced start path does
+not request framebuffer width or height. BackBoard still reads null
+`ColorElements` from that service and receives `0xe00002bc`. The immediate
+runtime boundary is now the registry publisher/property path that should
+populate `ColorElements`; the AV controller/SAC response schema remains a
+separate firmware question. See the current probe map in
+`docs/re/quartzcore-render-bounds-followup.md`.
+
+GATE226 saw no AFK report on interface 12 after the AP opened the MIPI proxy;
+only the initial PUBLISH arrived. GATE227 found that
+`IOAVHandlerInternalDisplay::plugEvent_async_gated` and its color/timing
+selection branches also do not run before BackBoard's query. The gap is before
+that handler consumes a video interface. The current QEMU EPIC model has no
+spontaneous MIPI report producer, so firmware-originated interface-12 traffic
+is still a candidate missing input; the AP's expected report schema is
+unknown. GATE228 found no base `IOAVHandler::IOAVEvent` dispatch; GATE229 also
+found no internal-display handler allocation, base construction, setup, or
+event registration. That rules out a cast/rejection at the handler and moves
+the immediate boundary to earlier interface creation. GATE230 resolved the
+five video-class allocator targets but did not arm them until after the early
+boot phase. GATE231 armed those target addresses from reset and observed no
+allocator or `IOAVInterface::start` hit before BackBoard's query. This narrows
+the observed gap to the request/matching event that should instantiate those
+classes; the next step is to identify that path from the kernelcache's
+personalities and provider flow. Do not fabricate the report or
+`ColorElements` payload.
+
+### Hot-plug string scope correction (2026-10-11)
+
+The H17P DCP firmware string `HotPlugDetectChangeOccurred` belongs to the
+DCPAV DisplayPort remote-port event path. Its caller validates the event's
+sender against the stored remote `_port` object and then changes DP link
+state. It is not a generic internal-display/MIPI notification and should not
+be used to manufacture the missing internal-panel `IOAVVideoInterface` or
+`ColorElements`. This is a static classification of the recovered firmware;
+QEMU does not execute that DCP task.
+
+P226 adds a runtime qualification: the reset-time AFK observer saw a 300-byte
+`dcpmipi-controller-epic` PUBLISH on interface 16. The corresponding
+interface-16 parse/decode/handoff was not captured before the early trace
+session ended; interface-13 DisplayPort parsing is a distinct path. The
+current boundary is therefore downstream of the observed MIPI PUBLISH, not
+absence of that report. No `ColorElements` value or mode was injected. See
+P226 in `docs/re/iomfb-dseries.md` for the Home/mode observations and artifact
+paths.

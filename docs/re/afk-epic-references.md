@@ -621,3 +621,13 @@ COMMAND 0xc0  iface 1 (body 0x68), 8 (0x58), 10 (0x98)
 ```
 
 13 OPEN reports and 1 CLOSE in a 150-second boot.
+
+GATE204–209 later traced the AP-side owners of those three `COMMAND 0xc0`
+frames: interface 1 is `DCPAVControllerProxy`, interface 8 is
+`DCPAVRemoteSACControllerProxy`, and interface 10 is `DCPDPDeviceProxy`.
+GATE207 read the payload at the verified DCPAV header offset `message+0x40`
+and found zeros across each request payload in that boot. The QEMU responder
+used for these probes is deliberately synthetic: it zero-allocates the reply
+body and copies only the command header. Its successful transport completion
+does not demonstrate that the firmware would accept those replies or that
+they contain the data required for IOAV display properties.

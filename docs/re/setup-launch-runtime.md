@@ -129,6 +129,20 @@ through `SBApplicationController`.  `tools/re/sb_setup_path_callbacks.py`
 breaks on every one of those edges with the process name per hit
 (`CALLBACKS=sb_setup_path_callbacks tools/re/setup_gate_probe.sh <TAG>`).
 
+### P150 runtime supplement: Setup mode selected; activation still open
+
+On the P150 shell-return boot, SpringBoard's second observed ADFL invocation
+called `updateInSetupMode`, received `x0=1`, and passed reason `x2=1` to
+`_setSetupRequiredReason:`. This confirms that the runtime selected the
+Setup-required branch described above. P150 did not observe a non-null Home
+entity, but its setup-activation observers were installed late, so that quiet
+window does not show whether an earlier activation attempt occurred. P151
+missed the UI test because its DVMI2 bootstrap helper was rejected by AMFI
+under the wrong trust cache. P152 uses the merged input trust cache and moves
+setup/activation/ADFL-exit observers to the shell-time callback bundle. The
+P150/P151 run records and limits are in `docs/re/iomfb-dseries.md` and
+`docs/re/dcp-firmware-services.md`.
+
 ## Phase 2 (`UI_SB_SETUP_PATH1`, rebuilt parent): SpringBoard never starts its app
 
 Run 13:37-13:43 with `CALLBACKS=sb_setup_path_callbacks`, slide `0x15080000`,
@@ -502,3 +516,9 @@ responder in `darwin_asc.c` (`rtk_handle_tracekit`) answers configure/enable/dis
 with `0x0030000000000001` and a flush with type 0.  First boot with it
 (`UI_TRACEKIT1`): both DCP and ANS2 immediately followed our configure reply with a
 type-2 disable that had never been sent before, i.e. the transition proceeded.
+
+### Runtime lookup-return capture after PLUGIN155
+
+PLUGIN155 observed 24 entries at `-[SBApplicationController setupApplication]` (`0x2243bf920 + slide`) and three `_handleSetupExited:` callbacks, but the existing static `SB_FORCEBUDDY_APP_LOOKUP_RET` breakpoint at `0x2244783d4 + slide` is a different call site's `applicationWithBundleIdentifier:` return. Those static events cannot be paired to the 24 setupApplication invocations or establish that Buddy returned nil.
+
+The read-only activation observer now arms a dynamic breakpoint at each setupApplication entry's saved LR, keyed by PID + TPIDR_EL1 + SP, and records the returned x0 and its first isa word. This follows the documented tail-call to `applicationWithBundleIdentifier:SBBuddyBundleIdentifier`; it is intended to classify each result as null/non-null before assigning meaning to the later setup-exit callback. The dynamic result hook has not yet been boot-validated. The subsequent capture also serializes each DVMI2 swipe point through HID dispatch, because P155 coalesced 11 motion records despite zero dispatch failures. Neither change modifies SpringBoard, guest model, or scanout behavior.
