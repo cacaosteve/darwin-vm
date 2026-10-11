@@ -40,6 +40,8 @@
 #   SRC   source system-volume image (default ~/dvm-artifacts/build/rootfs.dmg)
 set -euo pipefail
 
+REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+SAFE_ATTACH="$REPO/tools/rootfs/safe_attach.sh"
 SRC=${SRC:-$HOME/dvm-artifacts/build/rootfs.dmg}
 OUT=${1:-$HOME/dvm-artifacts/build/rootfs_dual.dmg}
 GROW_GB=${2:-4}
@@ -58,10 +60,11 @@ for img in "$SRC" "$OUT"; do
 done
 
 OURDEV=""
+CONTAINER=""
 cleanup() {
     if [ -n "$OURDEV" ]; then
         echo "==> cleanup: detaching $OURDEV"
-        diskutil eject "$OURDEV" >/dev/null 2>&1 || hdiutil detach "$OURDEV" -quiet 2>/dev/null || true
+        "$SAFE_ATTACH" detach "$OURDEV" >/dev/null 2>&1 || true
     fi
 }
 # Detach our own container on any exit path, including a failure partway
@@ -85,19 +88,32 @@ dd if=/dev/zero of="$OUT" bs=1 count=0 seek="$new" 2>/dev/null \
     || die "could not extend $OUT"
 
 echo "==> attach (no mount: we never need to mount the system volume)"
-OURDEV=$(hdiutil attach -nomount -owners off "$OUT" 2>/dev/null \
-         | awk '/EF57347C/{print $1; exit}')
-[ -n "$OURDEV" ] || die "could not find the APFS container after attach"
-echo "    container $OURDEV"
+OURDEV=$("$SAFE_ATTACH" attach "$OUT" --nomount --owners off) \
+    || die "could not attach the APFS image"
+[ -b "$OURDEV" ] || die "attachment did not return a physical device: $OURDEV"
+CONTAINER=$(diskutil apfs list -plist | python3 -c '
+import plistlib, sys
+physical = sys.argv[1].removeprefix("/dev/")
+data = plistlib.loads(sys.stdin.buffer.read())
+for container in data.get("Containers", []):
+    stores = {item.get("DeviceIdentifier") for item in container.get("PhysicalStores", [])}
+    if physical in stores:
+        print("/dev/" + container["ContainerReference"])
+        break
+else:
+    raise SystemExit("no APFS container for " + physical)
+' "$OURDEV") || die "could not resolve APFS container for $OURDEV"
+[ -b "$CONTAINER" ] || die "resolved APFS container is not a device: $CONTAINER"
+echo "    image $OURDEV, container $CONTAINER"
 
 echo "==> grow the container into the new space"
-diskutil apfs resizeContainer "$OURDEV" 0 >/dev/null || die "resizeContainer failed"
+diskutil apfs resizeContainer "$CONTAINER" 0 >/dev/null || die "resizeContainer failed"
 
 # APFSX, not APFS: iOS system and data volumes are both CASE-SENSITIVE, and
 # diskutil's "APFS" makes a case-insensitive volume. Getting this wrong is the
 # kind of thing that surfaces as a mysterious file-not-found deep in a boot.
 echo "==> add an empty case-sensitive volume '$VOLNAME' with role D"
-diskutil apfs addVolume "$OURDEV" APFSX "$VOLNAME" -role D -nomount >/dev/null \
+diskutil apfs addVolume "$CONTAINER" APFSX "$VOLNAME" -role D -nomount >/dev/null \
     || die "addVolume failed"
 
 # `dt_fixup.py` drops only the three roles macOS cannot create (xART,
@@ -107,12 +123,12 @@ for spec in 'Preboot:B' 'Hardware:H'; do
     name=${spec%%:*}
     role=${spec##*:}
     echo "==> add empty case-sensitive volume '$name' with role $role"
-    diskutil apfs addVolume "$OURDEV" APFSX "$name" -role "$role" -nomount >/dev/null \
+    diskutil apfs addVolume "$CONTAINER" APFSX "$name" -role "$role" -nomount >/dev/null \
         || die "addVolume $name failed"
 done
 
 echo "==> resulting volume layout"
-diskutil apfs list "$OURDEV" | grep -E "APFS Volume|Role|Name:|Capacity" | sed 's/^/    /'
+diskutil apfs list "$CONTAINER" | grep -E "APFS Volume|Role|Name:|Capacity" | sed 's/^/    /'
 
 echo "==> done: $OUT"
 echo

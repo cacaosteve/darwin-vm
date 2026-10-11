@@ -31,6 +31,7 @@ class QMP:
         self.sock.settimeout(10)
         self.sock.connect(str(path))
         self.buf = b''
+        self.resume_events = []
         self.recv()                                   # greeting
         self.execute('qmp_capabilities')
 
@@ -52,6 +53,30 @@ class QMP:
             if 'error' in reply:
                 raise RuntimeError(reply['error'])
             return reply.get('return')
+
+    def ensure_running(self, timeout=10):
+        """Resume a paused VM before input, but never revive shutdown."""
+        status = self.execute('query-status')
+        if status.get('running'):
+            return status
+        state = status.get('status')
+        if state not in ('paused', 'prelaunch', 'debug'):
+            raise RuntimeError('QEMU VM is not input-capable: %s' % status)
+        self.resume_events.append(status)
+        try:
+            self.execute('cont')
+        except RuntimeError:
+            # A concurrent resume is harmless; confirm the state below.
+            pass
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            status = self.execute('query-status')
+            if status.get('running'):
+                return status
+            if status.get('status') not in ('paused', 'prelaunch', 'debug'):
+                break
+            time.sleep(0.05)
+        raise RuntimeError('QEMU did not resume for input: %s' % status)
 
 
 class HMP:
@@ -100,6 +125,7 @@ def wait_status(path, predicate, timeout, what):
 
 
 def send(qmp, x, y, down):
+    qmp.ensure_running()
     qmp.execute('input-send-event', events=[
         dict(type='abs', data=dict(axis='x', value=x)),
         dict(type='abs', data=dict(axis='y', value=y)),
@@ -108,6 +134,7 @@ def send(qmp, x, y, down):
 
 
 def move(qmp, x, y):
+    qmp.ensure_running()
     qmp.execute('input-send-event', events=[
         dict(type='abs', data=dict(axis='x', value=x)),
         dict(type='abs', data=dict(axis='y', value=y)),
@@ -120,12 +147,30 @@ def screendump(hmp, path):
     return hashlib.sha256(data).hexdigest()
 
 
+def wait_dispatch_step(status_path, target_count, timeout):
+    """Wait until the newly submitted DVMI2 edge/motion is HID-dispatched."""
+    deadline = time.monotonic() + timeout
+    last = None
+    while time.monotonic() < deadline:
+        last = read_status(status_path)
+        if last and (last.get('dispatched', 0) +
+                     last.get('dispatch_failed', 0)) >= target_count:
+            return last
+        if last and last.get('guest_state') != 'R':
+            raise RuntimeError(
+                'guest input helper left ready state during serialized gesture')
+        time.sleep(0.01)
+    raise TimeoutError('HID dispatch step %d not observed; last status: %s' %
+                       (target_count, last))
+
+
 def key_press(args, run, qcode, hold_ms, button=None):
     """Home through the F5 key (qcode) or through the right mouse button."""
     status_path = run / 'input-status.json'
     before = wait_status(status_path, lambda s: s['guest_state'] == 'R', args.ready_timeout,
                          'guest helper readiness')
     qmp = QMP(run / 'qmp.sock')
+    vm_status = qmp.ensure_running()
     hmp = HMP(run / 'monitor.sock')
     frames = {}
     if args.frames:
@@ -136,6 +181,7 @@ def key_press(args, run, qcode, hold_ms, button=None):
             event = dict(type='btn', data=dict(button=button, down=down))
         else:
             event = dict(type='key', data=dict(down=down, key=dict(type='qcode', data=qcode)))
+        qmp.ensure_running()
         qmp.execute('input-send-event', events=[event])
         if down:
             time.sleep(hold_ms / 1000)
@@ -143,7 +189,9 @@ def key_press(args, run, qcode, hold_ms, button=None):
                         lambda s: s['inflight'] == 0 and s['queue_len'] == 0 and
                         s['sent'] >= before['sent'] + 2,
                         args.ack_timeout, 'button acknowledgement')
-    result = dict(stage_host_to_ack_complete_ms=round((time.monotonic() - t0) * 1000, 1),
+    result = dict(qemu_status_before_input=vm_status,
+                  qemu_resume_events=qmp.resume_events,
+                  stage_host_to_ack_complete_ms=round((time.monotonic() - t0) * 1000, 1),
                   records_sent=after['sent'] - before['sent'],
                   records_acked=after['acked'] - before['acked'],
                   ack_failed=after['ack_failed'] - before['ack_failed'],
@@ -164,6 +212,7 @@ def wheel(args, run, x, y, notches):
     before = wait_status(status_path, lambda s: s['guest_state'] == 'R', args.ready_timeout,
                          'guest helper readiness')
     qmp = QMP(run / 'qmp.sock')
+    vm_status = qmp.ensure_running()
     hmp = HMP(run / 'monitor.sock')
     frames = {}
     if args.frames:
@@ -172,6 +221,7 @@ def wheel(args, run, x, y, notches):
     move(qmp, x, y)
     name = 'wheel-up' if notches > 0 else 'wheel-down'
     for _ in range(abs(notches)):
+        qmp.ensure_running()
         qmp.execute('input-send-event', events=[
             dict(type='btn', data=dict(button=name, down=True)),
             dict(type='btn', data=dict(button=name, down=False))])
@@ -180,7 +230,9 @@ def wheel(args, run, x, y, notches):
                         s['sent'] > before['sent'] and s['contact_sent'] is False and
                         s['dispatched'] + s['dispatch_failed'] > before['dispatched'] + before['dispatch_failed'],
                         args.ack_timeout, 'wheel gesture dispatch')
-    result = dict(stage_host_to_dispatch_complete_ms=round((time.monotonic() - t0) * 1000, 1),
+    result = dict(qemu_status_before_input=vm_status,
+                  qemu_resume_events=qmp.resume_events,
+                  stage_host_to_dispatch_complete_ms=round((time.monotonic() - t0) * 1000, 1),
                   records_sent=after['sent'] - before['sent'],
                   dispatch_last_us=after['dispatch_last_us'],
                   dispatch_failed=after['dispatch_failed'] - before['dispatch_failed'],
@@ -200,19 +252,32 @@ def gesture(args, run, points, hold_ms):
     before = wait_status(status_path, lambda s: s['guest_state'] == 'R', args.ready_timeout,
                          'guest helper readiness')
     qmp = QMP(run / 'qmp.sock')
+    vm_status = qmp.ensure_running()
     hmp = HMP(run / 'monitor.sock')
     frames = {}
     if args.frames:
         frames['before'] = screendump(hmp, args.frames + '-before.png')
     t0 = time.monotonic()
+    dispatch_target = before['dispatched'] + before['dispatch_failed']
+
+    def wait_for_step():
+        nonlocal dispatch_target
+        if args.dispatch_each_step:
+            dispatch_target += 1
+            wait_dispatch_step(status_path, dispatch_target,
+                               args.dispatch_step_timeout)
+
     send(qmp, points[0][0], points[0][1], True)
+    wait_for_step()
     step = hold_ms / max(1, len(points) - 1) / 1000 if len(points) > 1 else hold_ms / 1000
     for x, y in points[1:]:
         time.sleep(step)
         move(qmp, x, y)
+        wait_for_step()
     if len(points) == 1:
         time.sleep(hold_ms / 1000)
     send(qmp, points[-1][0], points[-1][1], False)
+    wait_for_step()
     sent_at = time.monotonic()
     # Every record of this gesture must be acknowledged, not merely queued.
     after = wait_status(status_path,
@@ -232,6 +297,8 @@ def gesture(args, run, points, hold_ms):
     except TimeoutError as error:
         dispatch_note = str(error).split(';')[0]
     result = dict(
+        qemu_status_before_input=vm_status,
+        qemu_resume_events=qmp.resume_events,
         stage_host_to_ack_complete_ms=round((ack_done - t0) * 1000, 1),
         stage_host_to_dispatch_complete_ms=round((time.monotonic() - t0) * 1000, 1),
         dispatched=dispatched(after), dispatch_failed=after['dispatch_failed'] - before['dispatch_failed'],
@@ -245,6 +312,7 @@ def gesture(args, run, points, hold_ms):
         ack_rejected=after['ack_rejected'] - before['ack_rejected'],
         timeouts=after['timeouts'] - before['timeouts'],
         coalesced=after['coalesced'] - before['coalesced'],
+        dispatch_each_step=args.dispatch_each_step,
         ack_last_us=after['ack_last_us'], ack_max_us=after['ack_max_us'],
         guest_state=after['guest_state'], epoch=after['epoch'],
     )
@@ -273,6 +341,10 @@ def main():
     p.add_argument('--px', action='store_true', help='coordinates are framebuffer pixels')
     p.add_argument('--hold-ms', type=int, default=80, help='tap hold / swipe duration')
     p.add_argument('--steps', type=int, default=12, help='swipe motion samples')
+    p.add_argument('--dispatch-each-step', action='store_true',
+                   help='wait for each HID dispatch before sending the next touch point')
+    p.add_argument('--dispatch-step-timeout', type=float, default=30,
+                   help='per-record timeout used with --dispatch-each-step')
     p.add_argument('--frames', help='prefix for before/after screendumps')
     p.add_argument('--frame-wait', type=float, default=5, help='seconds to wait for a presented frame')
     p.add_argument('--settle', type=float, default=1.5, help='seconds before the after-frame')
@@ -284,12 +356,15 @@ def main():
     s = sub.add_parser('swipe'); [s.add_argument(n) for n in ('x1', 'y1', 'x2', 'y2')]
     s = sub.add_parser('home'); s.add_argument('--button', choices=('right',),
                                                 help='use the right mouse button instead of F5')
+    sub.add_parser('power', help='send one consumer-page Power button press')
     s = sub.add_parser('wheel'); s.add_argument('x'); s.add_argument('y')
     s.add_argument('notches', type=int, help='positive = wheel up (content scrolls up)')
     sub.add_parser('status')
     s = sub.add_parser('wait-ready'); s.add_argument('--timeout', type=float, default=600)
     s = sub.add_parser('frame'); s.add_argument('path')
     args = p.parse_args()
+    if args.dispatch_step_timeout <= 0:
+        p.error('--dispatch-step-timeout must be positive')
     run = args.run
     status_path = run / 'input-status.json'
     if args.cmd == 'status':
@@ -302,12 +377,16 @@ def main():
     if args.cmd == 'frame':
         print(json.dumps(dict(path=args.path, sha256=screendump(HMP(run / 'monitor.sock'), args.path))))
         return
-    if args.cmd == 'home':
-        # F5 is bound to the consumer-page Home button (darwin_fb.c); it
-        # travels as a B record with both edges.
+    if args.cmd in ('home', 'power'):
+        # F5 and Power are mapped to consumer-page Home/Power usages by
+        # darwin_fb.c; both travel as B records with both edges.
         result = dict(command='home', run=str(run), unix=time.time())
+        qcode = 'f5' if args.cmd == 'home' else 'power'
+        if args.cmd == 'power':
+            result['command'] = 'power'
         try:
-            result.update(key_press(args, run, 'f5', args.hold_ms, button=args.button))
+            result.update(key_press(args, run, qcode, args.hold_ms,
+                                    button=getattr(args, 'button', None)))
             result['ok'] = (result['records_acked'] >= result['records_sent'] and
                             not result['ack_failed'] and not result['timeouts'])
         except TimeoutError as error:

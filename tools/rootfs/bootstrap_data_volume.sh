@@ -117,7 +117,10 @@ phase_ramdisk_helper() {
     mkdir -p "$(dirname "$RESTORE_RAMDISK_OUT")"
     cp -p "$RESTORE_RAMDISK_BASE" "$RESTORE_RAMDISK_OUT" \
         || die 'could not copy restore ramdisk'
-    mnt=$("$REPO/tools/rootfs/safe_attach.sh" attach "$RESTORE_RAMDISK_OUT" --owners on) \
+    # The disposable restore ramdisk carries a helper built by this user. Use
+    # noowners so its root-owned libexec directory is writable while staging;
+    # the later guest checksum is the independent execution-time proof.
+    mnt=$("$REPO/tools/rootfs/safe_attach.sh" attach "$RESTORE_RAMDISK_OUT" --owners off) \
         || die 'could not safely attach derived restore ramdisk'
     [[ "$mnt" == /Volumes/* ]] && [ -d "$mnt/libexec" ] || {
         "$REPO/tools/rootfs/safe_attach.sh" detach "$mnt" 2>/dev/null || true

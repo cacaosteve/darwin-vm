@@ -27,8 +27,10 @@
 #     volumes mounted, including Xcode Simulator runtimes, and we clobbered one
 #
 # usage:
-#   safe_attach.sh attach <image> [--readonly] [--owners on|off]
-#   safe_attach.sh detach <mountpoint>
+#   safe_attach.sh attach <image> [--readonly] [--owners on|off] [--nomount]
+#   safe_attach.sh detach <mountpoint|device>
+#   safe_attach.sh mount-device <device> [--owners on|off]
+#   safe_attach.sh unmount-device <mountpoint|device>
 #   safe_attach.sh list
 set -uo pipefail
 
@@ -39,15 +41,16 @@ cmd="${1:-}"; shift 2>/dev/null
 case "$cmd" in
 attach)
     img="${1:-}"; shift 2>/dev/null
-    [ -n "$img" ] || die "usage: safe_attach.sh attach <image> [--readonly] [--owners on|off]"
+    [ -n "$img" ] || die "usage: safe_attach.sh attach <image> [--readonly] [--owners on|off] [--nomount]"
     [ -e "$img" ] || die "no such image: $img"
 
-    ro=""; owners="on"; volume_name=""
+    ro=""; owners="on"; volume_name=""; nomount=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --readonly) ro="-readonly"; shift ;;
             --owners)   owners="$2"; shift 2 ;;
             --volume-name) volume_name="$2"; shift 2 ;;
+            --nomount) nomount="-nomount"; shift ;;
             *) die "unknown option: $1" ;;
         esac
     done
@@ -58,9 +61,20 @@ attach)
         die "already attached: $real  (detach it first; concurrent rw attachments corrupt images)"
     fi
 
-    out=$(hdiutil attach -nobrowse -owners "$owners" $ro "$img" 2>&1) || {
+    [ -z "$nomount" ] || [ -z "$volume_name" ] \
+        || die "--volume-name cannot be combined with --nomount"
+    out=$(hdiutil attach -nobrowse -owners "$owners" $ro $nomount "$img" 2>&1) || {
         echo "$out" >&2; die "attach failed"
     }
+    if [ -n "$nomount" ]; then
+        # No filesystem is exposed to Spotlight/fseventsd in this mode. Return
+        # the physical image device so callers can operate on the APFS
+        # container without mounting its volumes, and detach that exact image.
+        dev=$(printf '%s\n' "$out" | awk '/^\/dev\/disk[0-9]+[[:space:]]/{print $1; exit}')
+        [ -n "$dev" ] || { printf '%s\n' "$out"; die "attached but no root device found"; }
+        echo "$dev"
+        exit 0
+    fi
     mounts=$(printf '%s\n' "$out" | grep -oE '/Volumes/.*$' | sed 's/[[:space:]]*$//')
     [ -n "$mounts" ] || { printf '%s\n' "$out"; die "attached but no mount point (nomount image?)"; }
     selected=""; matches=0
@@ -102,8 +116,43 @@ attach)
 
 detach)
     mnt="${1:-}"
-    [ -n "$mnt" ] || die "usage: safe_attach.sh detach <mountpoint>"
+    [ -n "$mnt" ] || die "usage: safe_attach.sh detach <mountpoint|device>"
     hdiutil detach "$mnt" || die "detach failed for $mnt (do NOT force-detach; find what is holding it)"
+    ;;
+
+mount-device)
+    dev="${1:-}"; shift 2>/dev/null
+    [ -b "$dev" ] || die "usage: safe_attach.sh mount-device <device> [--owners on|off]"
+    owners="on"
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --owners) owners="$2"; shift 2 ;;
+            *) die "unknown option: $1" ;;
+        esac
+    done
+    case "$owners" in
+        on) mount_owners="owners" ;;
+        off) mount_owners="noowners" ;;
+        *) die "--owners must be on or off" ;;
+    esac
+    mnt=$(mktemp -d /tmp/dvm-safe-mount.XXXXXX) || die "could not create mountpoint"
+    if ! diskutil mount -mountOptions "$mount_owners,nobrowse" -mountPoint "$mnt" "$dev" >/dev/null; then
+        rmdir "$mnt" 2>/dev/null || true
+        die "could not mount $dev"
+    fi
+    touch "$mnt/.metadata_never_index" 2>/dev/null \
+        && echo "safe_attach: Spotlight excluded via .metadata_never_index" >&2
+    mkdir -p "$mnt/.fseventsd" 2>/dev/null \
+        && touch "$mnt/.fseventsd/no_log" 2>/dev/null \
+        && echo "safe_attach: fseventsd disabled via .fseventsd/no_log" >&2
+    echo "$mnt"
+    ;;
+
+unmount-device)
+    target="${1:-}"
+    [ -n "$target" ] || die "usage: safe_attach.sh unmount-device <mountpoint|device>"
+    diskutil unmount "$target" >/dev/null || die "could not unmount $target"
+    case "$target" in /tmp/dvm-safe-mount.*) rmdir "$target" 2>/dev/null || true ;; esac
     ;;
 
 list)

@@ -243,7 +243,10 @@ def prepare(a, out, config, env):
     image = out / 'installer.dmg'
     shutil.copyfile(a.firmware / 'ramdisk.dmg', image)
     wrapper = REPO / 'tools/rootfs/safe_attach.sh'
-    mount = Path(subprocess.check_output([str(wrapper), 'attach', str(image), '--owners', 'on'], text=True).strip())
+    # This is the small disposable restore ramdisk, not the large System
+    # volume. Its root-owned libexec directory must be writable by the host
+    # user while staging the already checksummed installer payloads.
+    mount = Path(subprocess.check_output([str(wrapper), 'attach', str(image), '--owners', 'off'], text=True).strip())
     try:
         for file in payload.iterdir():
             shutil.copyfile(file, mount / 'libexec' / file.name)
@@ -341,8 +344,14 @@ def main():
         p.error('missing explicit inputs:\n' + '\n'.join(missing))
     if a.qemu_img.name != 'qemu-img':
         p.error('--qemu-img must be named qemu-img (shared installer resolves it through PATH)')
-    disk_info = json.loads(subprocess.check_output(
-        [str(a.qemu_img), 'info', '--output=json', str(a.base_image or a.parent)], text=True))
+    info_command = [str(a.qemu_img), 'info', '--output=json']
+    # The source is a raw APFS container whose historical .dmg suffix is not a
+    # UDIF format declaration. qemu-img otherwise guesses UDIF from the suffix
+    # and rejects the valid raw image before the explicit format check below.
+    if a.base_image:
+        info_command += ['-f', 'raw']
+    info_command.append(str(a.base_image or a.parent))
+    disk_info = json.loads(subprocess.check_output(info_command, text=True))
     expected_format = 'raw' if a.base_image else 'qcow2'
     if disk_info.get('format') != expected_format:
         p.error(f'selected source must have {expected_format} format')

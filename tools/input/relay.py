@@ -73,10 +73,11 @@ def main():
             parser.error('swipe endpoints must differ')
         # Daemon R buffers moves with native 20 ms durations, then plays on
         # lift. UART ACK latency cannot stretch this into a long press.
+        swipe_kind = 'R' if args.backend == 'recap' else 'T'
         swipe_steps.extend(dict(down=True, x=round(x1+(x2-x1)*i/20),
-                                y=round(y1+(y2-y1)*i/20), kind='R')
+                                y=round(y1+(y2-y1)*i/20), kind=swipe_kind)
                            for i in range(21))
-        swipe_steps.append(dict(down=False, x=x2, y=y2, kind='R'))
+        swipe_steps.append(dict(down=False, x=x2, y=y2, kind=swipe_kind))
     queue, partial, replies = deque(), '', b''
     sequence = int(time.time() * 1000)
     with open(args.events) as events, open(args.log, 'a', buffering=1) as log, \
@@ -132,7 +133,7 @@ def main():
                               observed=time.monotonic(),
                               kind='H' if args.home else
                                    ('R' if args.backend == 'recap' else 'P') if args.tap else
-                                   'T' if args.release else 'S')
+                                   ('R' if args.backend == 'recap' else 'T') if args.release else 'S')
             elif queue:
                 record = dict(queue.popleft(), kind='R' if args.backend == 'recap' else 'T')
             elif args.home or args.ping or args.release or args.tap or args.swipe:

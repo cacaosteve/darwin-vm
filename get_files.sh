@@ -171,21 +171,15 @@ patch_ramdisk() {
 
     echo "Patching ${ramdisk}"
 
-    livemount="$(mktemp -d)"
-
-    if [[ -z "${livemount}" || ! -d "${livemount}" ]]; then
-        die "something's wrong with the livemount, stopping here"
-    fi
-
     # mount with -owners off to perform complicated FS ops without root, later
-    # we can chown everything to root.
-    if ! hdiutil attach -owners off -mountpoint "${livemount}" "${ramdisk}"; then
-        rmdir "${livemount}"
+    # we can chown everything to root. Use the repository's required wrapper
+    # to suppress host indexing and reject concurrent image attachments.
+    if ! livemount="$(tools/rootfs/safe_attach.sh attach "${ramdisk}" --owners off)"; then
         die "mount failed"
     fi
 
     echo "mounted ${ramdisk} on ${livemount}"
-    trap 'hdiutil detach ${livemount}; rmdir ${livemount}' EXIT
+    trap 'tools/rootfs/safe_attach.sh detach "${livemount}"' EXIT
 
     if [[ -d "${livemount}/System/Library/LaunchDaemons.old" ]]; then
         echo "already patched"
@@ -219,13 +213,7 @@ patch_ramdisk() {
     esac
 
     echo "building trustcache..."
-
-    find "${livemount}" -type f -perm +111 \
-        \( -exec codesign -a arm64 -d -vvv {} \; -o -true \) \
-        \( -exec codesign -a arm64e -d -vvv {} \; -o -true \) \
-        \( -exec codesign -a arm64e.x1 -d -vvv {} \; -o -true \) \
-        2>&1 | grep -i cdhash= | cut -d= -f2- > "${FW_DIR}/all_hashes"
-
+    find "${livemount}" -type f -exec codesign -d -vvv {} \; 2>&1 | grep -i cdhash= | cut -d= -f2- > "${FW_DIR}/all_hashes"
     "${BUILD_TC}" "${FW_DIR}/all_hashes" "${FW_DIR}/ramdisk.tc"
 }
 
