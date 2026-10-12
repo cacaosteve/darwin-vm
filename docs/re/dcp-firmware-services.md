@@ -4549,6 +4549,34 @@ backing chain resolves to the P182 parent. Full records are under
 No model, fixture, SpringBoard, CLASS16, A408, or scanout changes were made;
 D572/D582 remain hypotheses.
 
+#### P289 — post-shell control separates Lock Screen surface bytes from HMP output
+
+P289 is a fresh durable P276 child using the accepted `system.tc` and the
+existing CLASS16/D572/D582 hypothesis profile. `DM_PERFORM_RETURN` recorded
+`x0=1`; BKS migration/check-in returned `x0=0`, then SpringBoard's
+shell-service return fired. A user-gesture CoverSheet dismissal was accepted;
+the legacy helper then sent its Home key. No second touch swipe was scheduled.
+No passcode or authentication was used.
+
+At guest time `1791808758.566068`, 312.29 seconds after the accepted gesture
+and 138.33 seconds after shell return, BackBoard yielded a 1179×2556 surface
+(stride 4864, pixel-format value `1111970369`, BGRA-tagged). Its decoded
+pixels show a black screen with status/battery indicators, home indicator, and
+a localized “Swipe up to open” prompt. Only 10,430/3,013,524 pixels are
+nonblack. The final HMP screenshot at +420 seconds remains uniformly black.
+This confirms sparse Lock Screen content at one IOSurface boundary while
+leaving surface submission/scanout unresolved; it does not demonstrate Home
+icons or authentication.
+
+The first sample was after the acknowledged post-transition Home key, so the
+control excludes the second swipe, not all later input. P284's temporary
+white surface during its follow-up swipe remains a distinct observation and
+cannot be attributed causally by this timing comparison. The useful next cut
+is to send one ordinary swipe after P289's lock prompt is present and pair
+surface bytes to the existing swap/HMP sampling. Full evidence and source
+hashes are in the durable P289 recovery record linked in `iomfb-dseries.md`.
+No DCP response or mode was altered; D572/D582 remain hypotheses.
+
 #### PLUGIN206 — accepted dismissal still produces only null-surface swaps
 
 P206 reached shell-service return and a non-null SpringBoard Home entity. Its
@@ -5119,3 +5147,1266 @@ No callback, property, mode, QEMU model, fixture, device-tree value, or pixel
 data was changed. D572/D582 remain hypotheses; the remaining payload gap
 requires the property object's runtime structure plus the serializer/transfer
 caller that emits the actual DCP body, or a real firmware callback capture.
+
+#### P237 static — `constructColorElements` has a second provider gate and distinct property sources
+
+In the same durable T8140 DCP Mach-O (SHA-256
+`8175dc0ed5ae80ffb016d9b8b9a87ed024883ff8670b281b54dca8a3445a08d8`),
+`constructColorElements` at `0x4288a60` reads its provider from `this+0x5cd0`
+and calls provider vtable slot `+0x70` at `0x4288aa0`. If bit 0 of that return
+is clear, control exits through `0x4288c70` before the property arrays are
+requested. This is an additional builder-side gate beyond the
+`start_ios_gated` `+0x130` return described in P231; its source-level meaning
+and runtime value are not identified.
+
+When that test passes, the builder calls provider slots `+0x80`, `+0x88`, and
+`+0x78` at `0x4288ad4`, `0x4288afc`, and `0x4288b24`. Their returned references
+are materialized through `0x41be504` and stored at builder offsets `+0x5c58`,
+`+0x5c70`, and `+0x5c78`. The later publication calls map those fields to
+`TimingElements`, `PreferredTimingElements`, and `ColorElements`, respectively
+(`0x42893d8`, `0x42893f0`, and `0x42893c0`). Slots `+0x140` and `+0x150`
+(`0x4288b48`, `0x4288b74`) instead feed `0x41bfb60` and populate `+0x5c80`
+and `+0x5c88`, later published as `DisplayAttributes` and `Transport`
+(`0x4289408`, `0x4289420`). This identifies the firmware-side producer
+interfaces and object-flow boundary; it does not reveal their concrete
+implementations, returned arrays, element dictionaries, or serialized wire
+payload.
+
+The type-0 Plug callback path reaches this builder through `0x428865c`:
+`0x428b590` calls that wrapper, and `0x428894c` calls `constructColorElements`
+(`0x4288a60`). The next discriminating real-firmware capture is therefore
+provider identity plus the `+0x70` return and `+0x78` returned array on that
+same invocation, followed by the property transfer. The QEMU DCP model does
+not execute these firmware instructions, so this static result cannot be
+validated by an ordinary guest boot. No model, callback, property, mode,
+device-tree value, SpringBoard, or pixel data changed; D572/D582 remain
+hypotheses.
+
+#### P238 — measured shell-to-SpringBoard path reaches a Home entity; display stays black
+
+P238's replay2b child completed DataMigrator/SystemApp sync, `DM_PERFORM`,
+BKS migration/check-in, and shell-service return. SpringBoard created and
+returned non-null Home entities and a workspace execute transition returned
+success. The ADFL call returned its non-null object about 187 seconds after
+entry. The legacy input helper ACKed the ordinary Home event and every
+normalized Recap swipe point and release. The Cover Sheet pan passed
+`shouldBegin` and ran
+began/changed/ended, but there was no subsequent lock-manager transition with
+`for_user_gesture=1`; the relay therefore did not send the gated follow-up Home
+event. This is a SpringBoard transition-coverage miss, not a display-content
+classification.
+
+The read-only post-home callbacks logged three SpringBoard CA commit entries
+and two returns, but no Server render-update, display-render, OGL, surface, or
+swap event. The Update/V170 observer was armed but correctly emitted no rows:
+its configured post-transition gate never opened. The HMP samples remain
+uniformly black (fraction 0.0; hash
+`d312521cf1e978b08337f0c936bdf71f2d7a61a3259dc5bd07792494c5cf42b9`) through
+the Home-entity return and a CA commit. P227 on the same lineage had already
+recorded an accepted gesture, so P238 isolates a run-to-run transition
+difference while confirming the logical shell/Home construction path. The
+primary display diagnosis remains the measured null `ColorElements` / mode
+`-1` and ignored update path from P227; P238 adds no new display-mode or DCP
+provider evidence. No guessed firmware property, mode, input transition, or
+pixels were injected. D572/D582 remain hypotheses; the P238 durable recovery
+bundle and child are identified in `docs/re/iomfb-dseries.md`.
+
+For the next replay2b run, the legacy host trigger now waits for the measured
+`SB_ADFL_ENTRY_RETURN` as well as `SB_HOME_ENTITY_READY` before submitting the
+bottom-edge swipe. P238 recorded that return about 187 seconds after entry;
+the revised ordering is host-only and remains unvalidated until another boot.
+
+#### P239 — lock transition accepted; post-transition compositor path advances, captured pixels stay black
+
+P239 validates the host-side ADFL ordering change: the DVMINPUT1 Home event
+was ACKed, `SB_HOME_ENTITY_READY` appeared, and the matching ADFL call returned
+its non-null object about 227 seconds after entry before the swipe was sent.
+The swipe's accepted Cover Sheet pan began, changed, and ended; the lock
+manager then recorded `for_user_gesture=1` at `0x233a59560`. The gated second
+Home event was ACKed after that transition. This is stronger than P238's
+unaccepted gesture and proves the guest reached the logical lock-dismissal
+transition. It does not claim that icons or wallpaper became visible.
+
+Post-transition evidence: 158 SpringBoard CA-commit entries; one BackBoard
+server render-update, display-render, and OGL-render entry; successful
+IOSurface allocation and surface creation return markers; and 15 framebuffer
+swap set-layer/handoff pairs. But every set-layer call had null `x3`, every
+handoff had null `x2`, and the first qword read from the set-layer `x1` header
+was a pointer value different from the allocation candidate `0x756eabab80`.
+The header value's type and relationship to the handoff object were not
+established. So this run does not show the newly allocated IOSurface reaching
+swap. V170 returned `x0=1`.
+However the sampled display mode at `+0x2b8` remained `-1`, and all 1179x2556 HMP screenshots, including
+the final 300-second post-transition capture, were uniformly black with
+`nonblack_fraction=0` and the repeated hash
+`d312521cf1e978b08337f0c936bdf71f2d7a61a3259dc5bd07792494c5cf42b9`. These
+are observed pipeline callbacks and allocation/swap-site executions, not
+proof of non-black draw data or physical scanout. The next cut is to decode
+the swap-layer and IOSurface identities and compare them with the render
+result and persistent mode sentinel. Do not inject guessed `ColorElements`,
+mode data, DCP properties, or pixels. The offline DCP provider analysis
+remains static; the QEMU DCP model does not execute the firmware builder, and
+D572/D582 remain hypotheses.
+
+The durable child is
+`~/dvm-artifacts/bp-patched-dev6/boot1/ui-class16-refresh60-dm-lock-plugin239-adfl-home1.qcow2`,
+SHA-256 `4d5e3c7f7f7c2a82957cf581bcf19f0e728541cc819e8ec8b0d1c4eddd49457d`;
+`qemu-img check -U` passed. See the P239 recovery bundle at
+`~/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/`
+`UI_CLASS16_REFRESH60_DM_PLUGIN239_ADFL_HOME1/`.
+
+#### P240 instrumentation — accepted-transition surface/swap identity (boot-validated by P240C)
+
+The read-only observer now uses the accepted `for_user_gesture=1` marker as a
+separate gate for IOSurface memory reads. It records at most two allocation
+return candidates and their metadata/pixel captures, compares those pointers
+against set-layer `x3`, and records the handoff `x0+0xb38` dispatch-slot value
+and its numeric relation to the recent same-thread set-layer header. These
+pointer comparisons do not establish object type or ownership. P240C
+boot-validated the gate and callbacks, but the metadata decoder did not recover
+valid geometry and the set-layer candidate did not match the allocated pointer.
+See P242 for the bounded live result. The probe makes no guest/model/DCP
+changes and does not force A408 or fabricate display data.
+
+#### P241 static — provider arrays are cached behind a paired-presence flag
+
+The same saved T8140 DCP image used for P237 shows a second guard inside
+`constructColorElements`. After the provider's `+0x70` method passes bit 0,
+the builder tests `this+0x5ca6` bit 0 (`0x4288ab4`–`0x4288abc`) and returns
+without querying array getters if already set. Otherwise provider `+0x80` and
+`+0x78` results are materialized at builder `+0x5c58` and `+0x5c78`.
+Immediately before the common return (`0x428952c`–`0x4289540`), the firmware
+sets `this+0x5ca6` bit 0 only when both stored pointers are non-null. This
+establishes a cached TimingElements/ColorElements pair guard in that control
+flow, not the returned contents or the reason either getter might fail.
+
+A matching-hardware trace should add the pre-call flag byte and both getter
+returns/stored fields to P237's provider/`+0x70` capture, then follow the
+property transfer. The binary SHA-256 is
+`8175dc0ed5ae80ffb016d9b8b9a87ed024883ff8670b281b54dca8a3445a08d8`; its
+symbols are stripped, no runtime provider implementation/value is recovered,
+and the QEMU model does not execute the firmware instructions. This is offline
+static analysis only; no guest/model/property/mode/device-tree/pixel changes.
+
+#### P242 — shell, lock dismissal, and Home are measured; visible presentation remains open
+
+P240C used a fresh child of the durable replay2b parent with the accepted trust cache and native input. SystemApp sync returned, then `DM_PERFORM_RETURN`, BKS migration/check-in returns, and SpringBoard shell-service return were recorded on the same boot. SpringBoard later returned a non-null Home entity and ADFL call; the bottom-edge Cover Sheet pan was accepted by `shouldBegin`, began and ended, and produced `for_user_gesture=1`. A follow-up Home event was acknowledged. These markers close the logical shell-to-lock-dismissal/Home path, not the visible-pixel path.
+
+After the accepted gesture, the read-only observer recorded one active-display Update whose V170 return was `w0=0` (not ignored), then Server `render_update`, `render_display`, IOSurface creation/allocation, and OGL entry. In this sample the active mode field remained `-1`, but it is correlation only: the Update passed the sampled ignore gate and reached downstream render calls. The metadata decoder did not recover valid IOSurface geometry, so allocation success is not pixel proof. Fifteen set-layer/handoff pairs followed; set-layer `x3` and handoff `x2` were null in all 15. In all 15 same-thread pairs, handoff `x0` equaled the first qword of the immediately preceding set-layer `x1` descriptor, and the sampled `+0xb38` slot was consistently `0x246d3eeec`. This joins the handoff to the descriptor-referenced object, without assigning that object's dynamic type or the slot's behavior. That object differed from the allocated candidate. HMP stayed uniformly black for the full 300-second post-transition observation.
+
+P103 on this same D5825-class profile previously captured a non-null IOSurface in `x3` at the same set-layer entry and decoded sparse lock-screen chrome from that surface. P240C therefore records a true null `x3` at this boundary after lock dismissal, rather than a missing pixel-decoder result; it does not name the reason the Home-layer submissions lack a surface.
+
+The next useful cut is to identify the set-layer `x1` object and the actual IOSurface argument/return path, then join a valid pixel-bearing surface to the transition's Update and handoff. Do not infer that the `-1` mode caused the null swap surface, or change DCP responses, A407, mode data, or pixels without a measured producer/consumer join. Durable child, frames, and complete logs are in `~/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN240C_SURFACE_JOIN1/`; child SHA-256 is `17c2c652b22391ca2b5786226be6ad2ea14c4169f4bceb3c23ce41fe4d448a1b` and `qemu-img check -U` passed. No QEMU model, firmware, device-tree, fixture, mode, or pixel changes were made; D572/D582 remain hypotheses.
+
+#### P243 — accepted gesture arrived beyond the trigger's former 60-second wait
+
+P243 revalidated the same-boot `DM_PERFORM_RETURN` → BKS migration/check-in
+return → SpringBoard shell-service return ladder. Home key input was
+acknowledged; the Home entity and non-null ADFL return were observed; and the
+Recap swipe was acknowledged. SpringBoard subsequently accepted the lock
+dismissal with `for_user_gesture=1` and matched pan-began/pan-ended evidence.
+The accepted marker was written roughly five seconds after the host's
+hard-coded 60-second wait expired, so the observer stopped before capturing
+the post-dismissal OGL/pixel window. This is a trigger-timing miss, not a
+negative UI transition.
+
+The legacy trigger now supports `--accepted-transition-timeout` (default 180
+seconds), exposed by `LEGACY_ACCEPTED_TRANSITION_TIMEOUT`; P244 is the fresh
+replay2b validation. P243 child SHA-256 is
+`e196eae65e54fcb27a6879f6ae0df3245120320d94cbb5dfe782627b128fb5cf`, and its
+recovery bundle is `recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN243_OGL_LAYER_JOIN1/`.
+No guest, DCP/model, device-tree, mode, or pixel changes were made.
+
+#### P244 — gesture correlation window was too narrow
+
+P244 reached SpringBoard Home and returned from ADFL after shell service
+return. The acknowledged swipe produced a lock-manager event with
+`for_user_gesture=1`; the recorded accepted `shouldBegin`, dismiss-began, and
+pan-ended events share the same recognizer and process/thread identity. The
+transition arrived 17.04 seconds after pan-end, just outside the correlator's
+15-second end-to-transition bound, so the trigger declined to continue into
+the post-transition render sample. The correlator now allows 30 seconds but
+retains the same recognizer, accepted-begin, PID/TPIDR, and event-order checks.
+P245 is the fresh-child validation. This run supplies no pixel conclusion.
+P244's child and logs are preserved in the durable recovery records; no
+guest/DCP/model/device-tree/mode/pixel values changed.
+
+#### P245 — live shell/Home path advances through an accepted gesture; pixels still do not reach the captured framebuffer
+
+P245 closes the P244 correlator-timing gap. On one replay2b child, the migration/check-in/shell-service ladder returned, SpringBoard returned a non-null ADFL object and constructed Home entities, and the lock manager recorded a user-caused transition after accepted `shouldBegin`, matching dismiss-began, and matching pan-ended callbacks. This validates the gesture gate and Home-side control path, not visible Home output.
+
+The final HMP sample was taken 300 seconds after the accepted transition. All captured frames remained uniformly black (1179x2556; `nonblack_fraction=0`; SHA-256 `d312521cf1e978b08337f0c936bdf71f2d7a61a3259dc5bd07792494c5cf42b9`). A transition-window Update returned through the sampled V170 gate and reached Server render-update/OGL; IOSurface create/allocation calls returned, but no identity join connects that allocation to the swap descriptor. Across 15 same-thread framebuffer set-layer/handoff pairs, set-layer `x3` and handoff `x2` were null, while handoff `x0` matched the preceding set-layer `x1` descriptor's first qword in every pair. The mode read was `-1` in the sampled state, but P245 does not establish it as causal. The next measured edge remains the descriptor-referenced object's dynamic type and its actual pixel-bearing surface/contents producer.
+
+P245's child is `~/dvm-artifacts/bp-patched-dev6/boot1/ui-class16-refresh60-dm-plugin245-ogl-layer-join3.qcow2`, SHA-256 `c03be03711819b6167dc8cf4dcf9db207ee3c7fb965931be521fae479ffae638`; `qemu-img check -U` passed. Logs and frames are in `recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN245_OGL_LAYER_JOIN3/`. The run validates the widened gesture-correlation interval and accepted-transition wait. No firmware, QEMU model, device-tree, display-mode, or pixel values were altered; D572/D582 remain hypotheses.
+
+#### P246 static — narrow the ColorElements provider factory inputs
+
+In the saved T8140 DCP image (`t8140dcp.macho`, SHA-256
+`8175dc0ed5ae80ffb016d9b8b9a87ed024883ff8670b281b54dca8a3445a08d8`),
+the `UnifiedPipeline.cpp` routine beginning at `0x42861f8` calls provider
+factory `0x42a4890` twice. Before the first call (`0x4286f70`–`0x4286f80`),
+it reads the 32-bit member at `this+0x6730`, reduces it to a nonzero boolean,
+and passes `(boolean, 0)`; the returned pointer is stored at `this+0x5cd0`
+(`0x4286f84`–`0x4286f88`), the provider consumed by
+`constructColorElements` at `0x4288a60` (P237). The second call at
+`0x4287080`–`0x4287090` passes the same boolean and selector `1`, then stores
+its result at `this+0x5cd8`. Other code tests the `+0x6730` member specifically
+against `2` (for example `0x427737c`–`0x4277398`), so firmware treats it as a
+multi-valued state; its source-level name and runtime value remain unknown.
+
+The factory first calls helper `0x4022ac8`, tests bit 0 of its out word, and,
+when set, queries the key `iomfb_vistub` at `0x42a48c0`–`0x42a48e4`. The key
+query's out word is initialized to zero. Its result is combined with the
+caller's boolean by `csel` at `0x42a48dc`–`0x42a48e4`: a zero status selects
+the caller boolean; a nonzero status selects the out word. A nonzero selected
+value creates the `0x58`-byte object (vptr literal at `0x4a29438`). Otherwise
+selector `1` creates a `0x98`-byte object (vptr literal `0x4a296b8`), and
+selector `0` creates a `0x1e8`-byte object (vptr literal `0x4a29090`). This
+establishes the factory's allocation branches and inputs, not the classes'
+names or their methods: the stripped image's corresponding `__DATA_CONST`
+vtable area is zero-filled, and there is no runtime instance to inspect
+offline. The `iomfb_vistub` string alone does not establish which branch a
+physical internal panel takes.
+
+For a matching-device capture, record both inputs at `0x42a4890`, the global
+and config lookup outcomes, returned object, and its later identity as
+`this+0x5cd0` at the builder. The QEMU model does not execute this DCP firmware
+code, so a normal VM boot cannot validate the factory branch. No firmware
+response, model, property, mode, device-tree, or pixel data changed; D572/D582
+remain hypotheses.
+
+#### P249 static — additional consumers of the `+0x6730` state
+
+The same saved image has a direct 32-bit getter at `0x428f190`–`0x428f19c`
+(`return *(uint32_t *)(this+0x6730)`). Two additional accessors load a nested
+pointer first: `0x4263cb4`–`0x4263cc4` reads from `*(this+0x80)+0x6730`, and
+`0x42669f0`–`0x4266a00` reads from `*(this+0x90)+0x6730`. These are separate
+base expressions; without a runtime object-identity join they must not be
+collapsed into one physical-device state.
+
+The consumer around `0x4277378`–`0x4277434` reads the `+0x90`-nested value,
+compares it with `2`, records the equality in a byte at `x20+0x3b9`, and uses
+the branch when selecting a `bics_mode` configuration value and storing a
+result at `x19+0x1d68`. Other routines at `0x42e4ad4`, `0x42e5d00`,
+`0x42e964c`, and `0x4300338` also test that nested word against `2`; their
+branches affect different downstream fields. This confirms that the
+multi-valued state participates in more than provider allocation, but does
+not name the state or prove those objects alias the `UnifiedPipeline` whose
+factory input P246 observed.
+
+The constructor beginning at `0x429085c` contains a guarded writer path for
+the same `this+0x6730` word; `0x4290a00` is an interior call site in that
+constructor, not a function entry. After an earlier constructor check at
+`0x4218468` succeeds,
+this path calls `0x41e2618` and proceeds only when bit 0 of its return is set
+(`0x4290a00`–`0x4290a08`); the other edge branches to `0x4290bcc`. On the
+normal path through `0x41e2618`, that test is not a display-data-availability
+gate: the helper dispatches the newly allocated object's vtable slot `+0x20`,
+stores that virtual method's result in the helper object at `+0xc`, then
+returns the constant `1` at `0x41e26b0`–`0x41e26c0`. Thus the constructor's
+bit test is satisfied whenever the helper returns normally; it does not test
+the virtual method's result or the `iomfb_system_type` query. On the
+proceeding path it forms `x24=this+0x6730` at `0x4290a10`–`0x4290a18`,
+initializes `*(uint32_t *)x24` to zero at `0x4290b6c`, then calls the property
+helper at `0x42abf88` with key `iomfb_system_type`, an out pointer to a
+four-byte stack word, and size `4` (`0x4290b40`–`0x4290b70`). If the helper
+returns nonzero, the code copies that out word to `*x24` at `0x4290b9c`. A
+zero return does not settle the field: a fallback consults a
+global flag and either performs another four-byte query or calls a virtual
+method. Either path can write `2` to `+0x6730` when its result is `1`; otherwise
+the initialized zero remains. Nearby logging prints `IOMFB: SystemTypeBootArg - Detecting system
+type %d`. This shows an `iomfb_system_type`-derived initializer and supports
+the field's system-type role, but does not identify its enum values. The
+shared offset strongly motivates joining this initializer's object to P246's
+factory receiver; the dynamic object identity is still absent, so this remains
+a static same-layout inference rather than runtime proof.
+
+The property helper itself also has a visible prerequisite. At `0x42abf88`,
+the code first runs `0x40363a0`, then asks `0x4022ac8` for a small state word;
+if that word's bit 0 is clear it returns zero without calling the keyed
+helper `0x4017ff0`. If bit 0 is set, it calls `0x4017ff0(key, out, size)`.
+That callee walks and parses a global argument-text buffer before matching
+the requested key. This makes the `iomfb_system_type` path a boot-argument
+lookup behind a separate availability gate, consistent with the nearby
+`SystemTypeBootArg` log. The state word's meaning and the actual argument
+value on hardware remain unknown; this is not evidence that setting an
+argument would create the missing `ColorElements` object.
+
+A focused decode of that fallback makes the on-device observation more
+specific. When the byte flag at `0x4984ec4` is set, the four-byte query call
+at `0x4290c28`–`0x4290c40` receives selector `0x44313233`, null/zero secondary
+arguments, an output word at `sp+0xc`, and length `4`; its output byte is
+compared with `1` at `0x4290c44`–`0x4290c4c`. When the flag is clear, the code
+loads the object at `0x49850a8`, follows `+0xa8` then `+0x58`, and invokes its
+vtable slot `+0x128` at `0x4290c54`–`0x4290c7c`; the returned word is compared
+with `1` at `0x4290c80`–`0x4290c84`. Either successful branch stores `2` to
+the `+0x6730` field at `0x4290c88`–`0x4290c8c`. The selector's semantics and
+the virtual slot's implementation remain unknown. This sharpens the
+capture request to include the flag, selector/output, or virtual receiver and
+return, alongside the field and factory input; it does not supply a value or
+justify synthesizing one in QEMU.
+
+The `0x42861f8` path separately forms `this+0x6730` in `x24` and later sets
+byte `this+0x674a` to `1`; its nearby zeroing at `0x4286f44` covers
+`this+0x6734` for `0x14` bytes, not the leading word. A device-side capture
+should record the initializer's property result, the word at `+0x6730`, the
+factory boolean/selector, and the returned object on the same receiver. Do not
+infer the live value from `bics_mode`, `iomfb_vistub`, or the QEMU mode
+sentinel. No firmware, model, device-tree, mode, or pixel data changed;
+D572/D582 remain hypotheses.
+
+#### P248 — Home state was observed, but the swipe was incomplete
+
+P248 used a fresh child of the durable P134 gesture-state image. The
+migration, check-in, and shell-service returns were recorded on one boot;
+SpringBoard then returned non-null ADFL and Home-entity objects. After the
+original LLDB session lost its QEMU connection, a reattached observer recorded
+another non-null Home entity and one lock-transition callback with `x3=0`.
+That callback is not accepted user-unlock evidence: no matching accepted
+`shouldBegin`/pan sequence or `forUserGesture=1` marker was recorded.
+
+The input helper's final status had `btn_down=true`, 16 dispatched events,
+and 2 timeouts; its contact remained at `(abs_x=16370, abs_y=23282)`. The
+orchestrator initially selected the legacy trigger, which was stopped before
+sending legacy input; a DVMI2 trigger was then started manually on the same
+guest. That DVMI2 attempt lost its debugger connection before dispatching the
+full swipe and ended with incomplete input/debugger coverage, not an unlock
+verdict. The sampled update gate still read mode `-1`, and HMP frames remained
+black; neither observation identifies the cause. P249 adds a `finally`-path
+best-effort touch release to the DVMI2 runner and retries from P134 with DVMI2
+selected at startup and the high-frequency update-gate trace disabled. P248's
+child and logs remain in
+`recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN248_HANDOFF_SYMBOL2/`; its
+child passed `qemu-img check -U`. No guest, firmware, model, device-tree,
+display-mode, or pixel data changed.
+
+#### P249 — shell and Home control path reached; swipe was not accepted
+
+P249 used a fresh child of durable P134 with the merged DVMI2 input trust
+cache, the low-trace post-shell observer, and an explicit shell-return gate.
+DataMigrator, BKS migration/check-in, and SpringBoard shell-service returns
+were observed. SpringBoard then returned non-null ADFL and Home-entity
+objects; Home/workspace transition execution also returned success. This
+confirms post-shell UI construction and control-path progress, not a visible
+or unlocked Home screen.
+
+The initial `(589,2540)->(589,500)` swipe was fully acknowledged and
+dispatched (33 motion samples; zero coalescing or dispatch failures), and the
+helper released contact. SpringBoard logged pan touches began and moved, but
+no matching pan `shouldBegin`, Cover Sheet dismiss begin/change/end, or
+accepted lock transition followed. Its lock-manager callbacks had
+`forUserGesture=0`. A manually delivered second bottom-edge swipe was also
+fully acknowledged; later lock-manager transitions likewise had
+`forUserGesture=0`. The observer's configured 600-second window ended before
+its 700-second automatic follow-up point, so no claim is made about that
+scheduled follow-up. The final HMP frame and all 1179x2556 frame-sampler
+captures were uniformly black (`nonblack_fraction=0`, SHA-256
+`d312521cf1e978b08337f0c936bdf71f2d7a61a3259dc5bd07792494c5cf42b9`).
+Backboard nevertheless reached render-update, IOSurface create/allocation,
+OGL, set-layer, and handoff callbacks; those entries do not prove that a
+pixel-bearing Home surface reached scanout.
+
+The child is preserved at
+`~/dvm-artifacts/bp-patched-dev6/boot1/ui-class16-refresh60-dm-plugin249-home-gesture-clean1.qcow2`
+(SHA-256 `58683bdcdb8400d5c7e88815e42f9b95b588618e2b7d8f6627c992f2c277f354`),
+backed by the durable P134 gesture-state image; `qemu-img check -U` passed.
+The full event, LLDB, frame, and input records are in
+`recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN249_HOME_GESTURE_CLEAN1/`.
+The run made no firmware, model, device-tree, display-mode, or pixel changes;
+D572/D582 remain hypotheses. The next gesture validation should use the
+replay2b lineage on which P245 accepted the dismissal gesture, and ensure the
+follow-up delay lies inside the observer window. The DVMI2 trigger now rejects
+a nonzero follow-up delay that is not shorter than its observation window, so
+the follow-up cannot be silently suppressed by that configuration again.
+
+#### P251 static — the `+0x6730` fallback query is D123
+
+The selector used by the P249 `+0x6730` initializer fallback is the already
+known D123 FourCC (`0x44313233`). In the constructor beginning at `0x429085c`,
+the path gated by global byte `0x4984ec4` calls `0x41d1a2c` at
+`0x4290c28`–`0x4290c40` with no input, a four-byte output at `sp+0xc`, and
+length four. The caller compares the first output byte with one and writes
+`2` to `this+0x6730` only on that result (`0x4290c44`–`0x4290c8c`). This
+connects the fallback to the D123 request family whose other call paths are
+documented above; neither the byte's semantic meaning nor a relationship to
+the missing primary `ColorElements` payload is established.
+
+The separate caller at `0x42861f8` makes a no-input/no-output D123 request at
+`0x4287044`–`0x428706c`, under the same global-byte gate. The shared helper
+`0x41d1a2c` packages the selector and optional buffers into a request
+descriptor before passing it through `0x41cec3c` to an indirect service
+method. Because the image is stripped and the provider's dynamic class and
+live reply are unavailable, the next useful hardware observation is a
+same-receiver trace of both calls, the four-byte result, the `+0x6730` field,
+and the factory's boolean/selector/object. This is a static capture recipe,
+not grounds to synthesize D123 data, mode state, or `ColorElements` in QEMU;
+D572/D582 remain hypotheses.
+
+The earlier endpoint sweep measured D123 as a four-byte-output callback with
+status zero in the QEMU/harness path. If the constructor's global-flag branch
+is active and that same first output byte is zero, its static control flow
+leaves `+0x6730` zero; this is a conditional consequence, not proof that the
+hardware returns zero or that the field controls `ColorElements` publication.
+The useful physical-device capture is the request/reply bytes together with
+the flag, post-query field, factory boolean/selector, and returned provider
+identity on the same receiver. No QEMU response was changed.
+
+
+#### P250 — SpringBoard accepts lock dismissal; captured output stays black
+
+P250 ran from a fresh durable replay2b child, `ui-class16-refresh60-dm-plugin250-replay2b-legacy-gesture1.qcow2` (SHA-256 `2ce4eec056c9aaa778056effa930c35bce762ed6da7f18c0d4468ada18eb6fba`); `qemu-img check -U` passed. The first shell-service return at guest time `1791776517.197` armed post-shell observation. SpringBoard returned non-null ADFL at `1791776658.0806`, created Home entities, and returned success from the workspace transition. The lock dismissal was positively accepted: `shouldBegin=true`, the same SpringBoard TPIDR and recognizer were seen across began/ended, and the transition recorded `for_user_gesture=1` and `gesture_sequence_confirmed=true` at `1791776819.5708`. Home-button down/up were ACKed. This proves a SpringBoard control-plane transition into Home state, not visible pixels.
+
+The first recap-swipe relay timed out on its final touch-up. A later same-coordinate fallback release was ACKed. The older `LEGACY_INPUT_RESULT` reported `swipe_acked=true` incorrectly; the durable source now distinguishes `swipe_relay_completed` from `fallback_release_acknowledged`. The accepted-transition markers, rather than that legacy field, are the gesture evidence.
+
+An HMP/frame sample covering 600 seconds after the accepted transition produced 18 identical 1179x2556 frames, all black (`nonblack_fraction=0`, SHA-256 `d312521cf1e978b08337f0c936bdf71f2d7a61a3259dc5bd07792494c5cf42b9`). A sampled display mode of `-1` remains an observation, not a causal diagnosis. BackBoard/render activity continued; IOSurface create/allocation calls returned; 15 set-layer/handoff pairs had matching descriptor evidence (handoff `x0` equaled the first qword at the preceding descriptor address in set-layer `x1`; set-layer `x3=0`, handoff `x2=0`). This proves continuity of a descriptor through those sites only; it does not prove visible content or identity with the separately allocated IOSurface. The `+0xb38` dispatch candidate did not resolve to a loaded user-space module.
+
+`DM_PERFORM_RETURN` recorded `x0=1` at `1791777036.814989`; a separate BKS migration/check-in return recorded `x0=0` at `1791777350.532`, followed milliseconds later by shell-service return. Their timing/thread evidence does not establish a single causal ladder. Durable child path: `~/dvm-artifacts/bp-patched-dev6/boot1/ui-class16-refresh60-dm-plugin250-replay2b-legacy-gesture1.qcow2`; complete evidence is under `~/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN250_REPLAY2B_LEGACY_GESTURE1/`. No firmware, model, device-tree, display-mode, or pixel values were changed; D572/D582 remain hypotheses.
+
+
+#### P252 static — D123 output contract and next post-home identity probe
+
+The AP bootkc callback table maps D123 to `0xfffffff00919b4f4` with four output bytes. Its handler saves `x4` as the output pointer and rejects `w5 < 4` with `0xe00002c2` before writing. On the success path it takes an index from callback context `x0+0x38`, resolves a 48-byte manager-table entry rooted at `0xfffffff00808fe48`, and passes the selected entry minus `0x90` to helper `0xfffffff009186e50`; the helper overwrites `x0` before preserving or reading that argument, so the selected entry does not affect its result. The handler stores the helper's low byte through `x4` and returns zero. P253 below recovers the helper's actual test.
+
+The DCP call at `0x4290c28` passes null input/zero input length but an output pointer at `sp+0xc` and output size four; the shared helper `0x41d1a2c` carries these output arguments into its request descriptor. The AP check is on output capacity, so this call meets the handler's four-byte requirement. This rules out the tempting interpretation that P249's D123 call fails because its input length is zero. P253 identifies the AP result as a root DeviceTree target-type suffix predicate; for the saved tree's `D47` value, output zero is consistent. It does not establish a relationship between `+0x6730` and primary `ColorElements`. No reply, mode, or firmware value was synthesized.
+
+#### P253 static — D123 tests the root DeviceTree target-type suffix
+
+Re-disassembly corrected the AP helper call: D123 invokes
+`0xfffffff009186e50`, not `0xfffffff00918b2a8` (a different routine). The
+handler checks that the indexed slot in the 48-byte table rooted at
+`0xfffffff00808fe48` is non-null, but passes slot-minus-`0x90` to a helper
+that overwrites its incoming `x0` before preserving or reading it. The helper
+resolves `IODeviceTree:/`, requests the `target-type` property, gets the
+property's byte sequence and length, and tests the final three characters
+against `sim` and `imb`. The D123 byte is therefore a global target-type
+predicate, not a value derived from the indexed display-manager entry.
+
+The saved, build-matched `system.dtree` decodes the root `target-type` as
+`D47`, so the suffix predicate is false. The recorded QEMU/harness D123
+status-zero/output-zero result is consistent with the AP code and this tree;
+the DCP constructor's conditional store of `2` to `this+0x6730` is not taken
+for this value. This branch is not evidence of a wrong D123 response or the
+missing primary `ColorElements` property. P253 changed no response, firmware,
+model, device-tree property, mode, or pixel data.
+
+The command transcript, source hashes, symbol lookups, DCP call site, and
+decoded root properties are preserved in
+`~/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN253_D123_TARGETTYPE_STATIC/`.
+
+#### P254 static — D123-derived factory input and `iomfb_vistub` override
+
+The caller at `0x4286f70`–`0x4286f88` converts `this+0x6730` to a boolean,
+passes it as `w0` with selector `w1=0` to `0x42a4890`, and stores the returned
+object at `this+0x5cd0`. The caller boolean is zero only if the constructor
+used the D123 branch and the alternate fallback did not later set the field;
+the virtual fallback's result is unknown. The factory checks an internal
+state bit before querying the
+`iomfb_vistub` property. If that lookup succeeds, its value supersedes the
+caller boolean; if it fails, the caller boolean is retained. A selected true
+value chooses a `0x58`-byte object path (setting byte `+0x50`); otherwise
+selector zero chooses a `0x1e8`-byte allocation. A nonzero selector chooses a
+separate `0x98`-byte allocation.
+
+This narrows the factory's static branch inputs but does not identify the
+returned object's dynamic class, link it to the live primary-display
+provider, or show that `iomfb_vistub` or D123 controls `ColorElements` or
+visible pixels. Disassembly and hashes are preserved in
+`~/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN254_DCP_FACTORY_BRANCH_STATIC/`.
+No property, response, firmware, model, device-tree, mode, or pixel values
+were changed.
+
+For the measured Home path, the probe now has an opt-in `DVM_POSTHOME_SURFACE_LINEAGE_TRACE=1` mode. On a bounded number of `fb_swap_set_layer` hits it compares the allocation-return object and its internal/base candidates against descriptor qwords and one level of immediate heap-pointer children, and reports runtime class-pointer resolution candidates. It does not replace the decisive `x3` non-null IOSurface witness. A pointer match only links objects; it does not prove pixel-bearing content or scanout. The next replay2b child should use this diagnostic alongside the accepted-gesture marker and the same 600-second frame sample, so a null `x3` result can be separated from an allocation-to-descriptor identity path without treating mode `-1` as cause.
+
+#### P255 static — provider results are copied into DCP property containers
+
+Disassembly of `constructColorElements` at `0x4288a60` and the called helper
+`0x41be504` shows each non-null provider result used for builder fields
+`+0x5c58`, `+0x5c70`, and `+0x5c78` is copied as a pointer range into a
+container; null results skip that copy. The helper does not parse or
+synthesize display entries in the observed path. The
+other provider results, assigned to `+0x5c80` and `+0x5c88`, pass through
+`0x41bfb60`, which copies 16-byte pointer pairs. Both helpers call
+`0x41c4888` on copied members; it dispatches vtable slot `+0x40` with a `+1`
+reference adjustment. Adjacent `0x41c48c4` dispatches that slot with `-1`.
+The stripped binary does not identify the dynamic operation or class, so this
+is not labeled as a specific retain/release API.
+
+The evidence supports only a static producer boundary: the constructor
+wraps provider-returned ranges/pairs in containers. It does not establish a
+live provider, nonempty values, a serialized payload, or a display mode.
+Exact disassembly and hashes are in
+`~/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN255_DCP_PROVIDER_ARRAY_MATERIALIZATION_STATIC/`.
+No runtime property, firmware, model, device-tree, mode, or pixel value was
+changed; D572/D582 remain hypotheses.
+
+P280 adds an AP-side post-dismissal boundary to the P281 static DCP capture
+plan. On a gesture-confirmed lock-manager transition, SpringBoard continued
+CA commits and emitted 5,113 pre-syscall `CA_RENDER_MACH_MSG_SEND_CALL`
+observations, while BackBoard recorded no later server-render-update entry
+and its 12 later swap-layer calls all had null `x3`. No post-marker IOSurface
+was supplied to sample. The HMP output remained black. These observations
+identify no DCP Plug callback value, `ColorElements` payload, display mode,
+or DCP response, so the real-device provider trace in P281 remains necessary
+for firmware-specific claims. The next guest-side cut is to compare full
+`0x9c42` message bodies at the SpringBoard send wrapper and render-server
+receive; the pre-syscall event and task-local port fields alone do not prove
+delivery. P280's durable child and full records are in
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN280_ACCEPTED_MARKER_SURFACE_SAMPLE1/`.
+
+#### P257 static — DCP serializes each property object into the chunk buffer
+
+The transfer helper at `0x4289694` closes the static handoff from P255's
+provider containers to the D126-D128 wire calls. It receives a property
+object in `x2` and key in `x1`, creates a `0x1000`-capacity output object via
+`0x41c6750`, and calls the property object's vtable `+0x30` with that output
+object. The return bit controls the helper's success/error branch. On success,
+the output object's vtable `+0x48` supplies the serialized byte count. The
+helper sends D126 with a four-byte total-size value of count plus one, obtains
+source bytes via output-object vtable `+0x50`, then emits D127 records with at
+most `0x1000` data bytes and the offset/length in the trailing eight bytes of
+each `0x1008`-byte input. It finishes with D128 carrying the 64-byte key.
+The call block still publishes the five properties in the P237 order.
+
+For the `ColorElements` array created by `0x41be504`, P236 identifies that
+object's `+0x30` vtable target as the AFK metadata serializer at `0x41c8ed4`.
+The serializer writes metadata and child IDs into the provided output; it
+does not recursively embed ColorElement dictionaries. P257 therefore links
+the serialized top-level property object to the chunked DCP callback framing,
+but does not reveal actual serialized bytes, a live provider/result, the
+dynamic class string, or proof that the producer ran in the observed QEMU
+boot. Full disassembly and hashes are saved in
+`~/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN257_DCP_PROPERTY_SERIALIZE_TRANSFER_STATIC/`.
+No firmware, model, device-tree, callback response, mode, or pixel value was
+changed; D572/D582 remain hypotheses.
+
+#### P259 static — restored bytes do not yet identify the factory provider method
+
+**Correction:** P260 below supersedes P259's BUND-to-Mach-O offset mapping and
+the resulting candidate-byte interpretation. Keep P259 as the original
+analysis record, but use P260's Type-4 layout and offsets for conclusions.
+
+P259 restored the larger-task `__DATA_CONST` bytes from the durable DCP BUND:
+bundle range `0xf31000..0xf86000` maps to Mach-O file range
+`0x952000..0x9a7000`. The reproducible image and byte report are under
+`~/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN259_DCP_PROVIDER_VTABLE_STATIC/`.
+
+The factory's selector-1 branch allocates a `0x98`-byte object, forms address
+`0x4a296b8`, signs it with `PACDA`, and stores it as the object's first
+qword. In the restored raw bundle that qword is zero. The bytes at
+`0x4a296b8+0x130` are nonzero, but are not a validated method pointer: the
+following 32-bit words include IEEE-754 values `700`, `920`, `1130`, `1415`,
+`1730`, and `2175`, while the first word also has a float interpretation of
+`35092304`. No schema or function-pointer decoding was established. The
+prior artifact label `selector1_slot_0x130` was therefore corrected to
+`selector1_vptr_plus_0x130_raw_unresolved`.
+
+This selector-1 object is also not proven to be the receiver of the distinct
+`UnifiedPipeline` provider `+0x130` call: that path loads its provider from
+the global `AppleDCPDisplayService`. Raw zero vptr bytes do not establish a
+runtime null implementation because task loading may transform the packed
+data. This pass identifies no dynamic provider, `ColorElements`, timing
+payload, display mode, or pixel result, and changes no firmware or QEMU
+response. D572/D582 remain hypotheses.
+
+#### P260 static — Type-4 BUND mapping corrects P259's `rdat` offsets
+
+P260 checked the BUND type-4 layout against the `ipsw fw dcp` extraction and
+the extracted P233 Mach-O. The BUND ranges are `rtxt=[0x32000,0x5b8000)` and
+`rdat=[0x5c4000,0xf94000)`. The Mach-O places `rtxt` at its first loadable
+segment's file offset and starts `rdat` at the second segment's file offset;
+reconstructing those ranges reproduces the P233 Mach-O SHA-256 exactly:
+`8175dc0ed5ae80ffb016d9b8b9a87ed024883ff8670b281b54dca8a3445a08d8`.
+The implementation reference used for this layout is the pinned
+[ipsw `pkg/bundle/runtime.go` source](https://github.com/blacktop/ipsw/blob/37e6badcbba4b82c4b66cd0376bd23f88839ad08/pkg/bundle/runtime.go).
+
+Under the verified mapping, Mach-O file offset `0x952000` (`__DATA_CONST`)
+comes from BUND offset `0xa71000`. The selector-1 vptr at file `0x98a6b8`
+maps to BUND `0xaa96b8`, and the raw qword is zero. The previously discussed
+`vptr+0x130` address at file `0x98a7e8` maps to BUND `0xaa97e8`, whose raw
+bytes are also zero. `__mod_init_func` at file `0x9a6350` maps to BUND
+`0xac5350`, also zero. P259 instead copied BUND offset `0xf31000` to file
+`0x952000`; that is not the Type-4 `rdat` mapping. Its apparent float sequence
+near `0xf697e8` therefore was not evidence about the selector-1 vtable slot.
+
+The corrected `__DATA_CONST` file range (`0x952000..0x9a7000`, `0x55000`
+bytes) is entirely zero in this extracted image; its SHA-256 is
+`179a0bea61861bbf7b5c52d8d60d662991c65c3d424aa03564c43f568ac06b58`.
+`ipsw macho info --fixups` reports no fixups, and the raw `__mod_init_func`
+section (`0x90` bytes) is zero. This further limits static attribution but
+still does not rule out runtime loader or DCP initialization that populates
+those structures.
+
+This corrects the static reconstruction only. The zero raw slots do not
+establish runtime null pointers because loader or initialization work may
+transform the image, and no live class, provider method, `ColorElements`
+payload, mode, or pixel result is identified. The validator,
+reassembly report, hashes, and superseded-offset note are preserved in
+`~/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN260_DCP_RDATA_MAPPING_CORRECTION_STATIC/`;
+the durable record includes the validator and the full-segment/fixup checks;
+the reusable validator is `tools/re/dcp_validate_runtime_data_mapping.py`.
+No firmware, device-tree, model, QEMU response, mode, or pixel value was
+changed; D572/D582 remain hypotheses.
+
+#### P265 static — Plug Sync callback's pre-builder provider branch
+
+The saved Type-4 T8140 DCP Mach-O from P233 (SHA-256
+`8175dc0ed5ae80ffb016d9b8b9a87ed024883ff8670b281b54dca8a3445a08d8`)
+was disassembled around `VideoInterface::Plug Sync callback` (`0x42884c8`),
+its `ColorElements` wrapper (`0x428865c`), and the adjacent Plug callback
+targets. At `0x42884c8`, the callback preserves `this` in `x19` and its
+second argument in `x20`. It calls the provider object at `this+0x5ee0`,
+vtable slot `+0x850` (`0x42884e0..0x4288508`). A zero return proceeds directly
+to the next provider call. A nonzero return tests the 32-bit field
+`this+0x42bc`; if that field is zero, the callback logs “System is powering
+down, dropping this hotplug” and returns `0x80000007` before the next call or
+builder. If the field is nonzero, it continues. Thus the observed early exit
+is the conjunction “slot `+0x850` nonzero and field `+0x42bc` zero,” not a
+simple zero-return rejection. The log text associates this branch with
+powering-down handling, but does not prove the field's source-level name.
+
+The continuing path calls slot `+0x1f0` on the object at `this+0x5cd0`, with
+the saved callback argument in `x1` (`0x4288520..0x4288548`), then calls the
+wrapper at `0x428865c`. This function also calls `constructColorElements`
+(`0x4288a60`) at `0x428894c`. The builder-side slot `+0x70` gate and property
+getters remain as documented in P237/P241; this pass adds the callback-side
+branch and ABI context ahead of those known gates. It does not assign names
+or semantics to the `+0x850` / `+0x1f0` methods or `+0x42bc` field, and it
+does not identify their runtime values or prove that this callback executes.
+
+The disassembly and input hash are preserved in
+`~/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN265_DCP_PLUG_SYNC_CALLBACK_STATIC/`.
+This is offline static analysis only: no real-hardware callback capture,
+runtime provider class, `ColorElements` payload, mode, or pixel result was
+obtained. No firmware, device-tree, model, QEMU response, or display data was
+changed; D572/D582 remain hypotheses.
+
+#### P266 static — Plug Sync's `+0x5ee0` receiver is wired during init
+
+In stripped function `func_429085c`, the firmware allocates a 0x30-byte object
+at `0x4290a78`, stores a vptr address point (`0x4a28f28`) at `0x4290ab8`, and
+stores that object in the enclosing object’s `+0x6110` at `0x4290adc`. The
+callee-saved `x20` continues to hold that allocation through `0x4290f04`, where
+the same pointer is also stored in enclosing-object `+0x5ee0`. Thus these two
+fields alias the same constructed object in this init routine. Later in the
+function, calls through `+0x5ee0` use vtable slots `+0x28`
+(`0x4290f74..0x4290f9c`) and `+0x20` (`0x4290fec..0x4291010`; call at
+`0x429100c`, clear at `0x4291010`). This structurally joins the Plug Sync
+callback's `+0x850` receiver (`0x42884e0..0x4288508`, P265) to an object
+allocated and installed by this init routine. The firmware image does not name
+its class or virtual methods.
+
+The saved Mach-O has zero bytes at the static vtable address point and reports
+no fixups, so this pass cannot resolve the `+0x850` implementation from the
+file. That is not evidence of a null runtime vtable; loader-time state was not
+captured and the firmware task does not execute in the current QEMU model. The
+disassembly and input hash are preserved in
+`~/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN266_DCP_PLUG_MEMBER_WIRING_STATIC/`.
+Next real-device capture should log the runtime `this+0x5ee0` pointer/vptr,
+slot `+0x850` target and return, `this+0x42bc`, and subsequent `+0x1f0` call,
+then join the builder provider/`+0x70`/`+0x78` values and property transfer.
+No provider result, payload, mode, DCP behavior, or pixel value was changed;
+D572/D582 remain hypotheses.
+
+#### P272 static — `nold` inventory yields a secondary-image candidate
+
+The Type-4 inventory parser found three header-only Mach-Os in `nold` at
+bundle offsets `0xf9c000`, `0xf9c608`, and `0xf9d3c0`. Their `__TEXT`
+`vmsize`/`filesize` pairs are `0x10000`, `0x4a4000`, and `0xe0000`;
+the largest-`__TEXT` image at `0xf9c608` remains the ipsw-selected main image.
+The reconstructed main image still matches the P233 extracted SHA-256
+`8175dc0ed5ae80ffb016d9b8b9a87ed024883ff8670b281b54dca8a3445a08d8`.
+
+After its verified payload, `rtxt` has `0xe2000` bytes, enough for the
+`0xe0000` `__TEXT` file range of the next-largest header with `0x2000` left.
+After the main image's `0x50e000` data span, `rdat` has `0x4c2000` bytes;
+the next-largest image declares `0x436000` of non-text file span, leaving
+`0x8c000`. A conditional reconstruction placed that image's `__TEXT` at
+BUND `0x4d6000` and its non-text data beginning at `0xad2000`; under this
+candidate, its `__DATA_CONST` would source BUND `0xef3000` and is all zero
+(`0x11000` bytes; SHA-256
+`b5822048397cfb7e72443fbe3f37fb07bbd0b397c11177cfd71cf768d44e924a`).
+
+This is capacity arithmetic plus a conditional byte layout, **not** a
+validated secondary-image mapping: the pinned ipsw source documents choosing
+and rehosting the largest-`__TEXT` image, but does not establish the secondary
+image's offsets or order. Therefore the candidate zero `__DATA_CONST` does
+not establish that a loaded task has null vtables, and it does not identify a
+provider, ColorElements payload, display mode, or pixel cause. The parser,
+nine tests, main-image hash check, candidate reconstruction, report, and
+commands are preserved in
+`~/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN272_DCP_NOLD_SECONDARY_CANDIDATE_STATIC/`.
+No DCP response, device-tree value, QEMU model behavior, mode, or scanout was
+changed; D572/D582 remain hypotheses.
+
+P272 follow-up checked the candidate's non-segment file references before
+treating it as an image. The embedded header's `LC_SYMTAB` declares a 609,440
+byte symbol table at file offset `0x517000` and a 741,008 byte string table at
+`0x5abca0`, ending at `0x660b30`; the stitched segment payload ends at
+`0x517000`. `otool -l` can display the header, but `nm` rejects this file as
+truncated/malformed because those tables are absent. The candidate is therefore
+only a segment-payload layout, not a complete Mach-O. Appending the tables after
+those segments would require `0x149b30` bytes, exceeding the hypothesized
+remaining `rdat` capacity (`0x8c000`) by `0xbdb30`; this rules out that simple
+contiguous `rdat` extension, but does not locate the tables or establish the
+actual secondary-image mapping. The validator now reports `LC_SYMTAB` ranges
+and marks the candidate incomplete. Updated report, candidate bytes, source,
+and eleven tests are in the same P272 recovery record.
+
+The three header-only Mach-Os also provide stable identities without requiring
+payload placement: `nold+0x0` UUID `E4E71A49-BDF9-3882-AA76-2A254FD366A7`,
+main image `nold+0x608` UUID `7A8B83FB-1EC8-3F13-A7C4-D9CD5BC71718`, and
+next-largest header `nold+0x13c0` UUID `62F319FD-46B6-3219-B2EF-F8BADDFA72E0`.
+These identify the header records only; the last UUID does not validate the
+candidate payload mapping. The validator and recovery record now preserve all
+three IDs.
+
+#### P267 static — callback receiver and property provider are separate member roles
+
+The callback disassembly loads `this+0x5ee0` for its `+0x850` virtual call,
+then on the continuing path loads `this+0x5cd0` for the `+0x1f0` call with
+the saved callback argument. Its wrapper reaches `constructColorElements`,
+whose builder independently reloads `this+0x5cd0` and uses provider slots
+`+0x70`, `+0x80`, `+0x88`, and `+0x78`. Thus the static member roles differ:
+the `+0x5ee0` callback receiver is not established as the property provider;
+pointer equality between the fields is also not established. The firmware
+still does not expose these virtual implementations in the saved data, and
+no runtime result or payload follows from this wiring.
+
+The P267 record and self-contained disassembly excerpts are in
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN267_DCP_PLUG_MEMBER_ROLES_STATIC/`.
+The next useful real-device capture should record both member pointers/vptrs
+independently, followed by `+0x850`, `+0x42bc`, `+0x1f0`, builder `+0x70`,
+the `+0x78` array, and property transfer. No firmware, property, mode,
+device-tree, QEMU response, or scanout content was changed; D572/D582 remain
+hypotheses.
+
+#### P268 static — Plug helper's dual-pointer prefix and registry view
+
+The same initializer that installs the Plug Sync `+0x5ee0` object writes two
+PACDA-signed pointer words into its 0x30-byte allocation: address point
+`0x4a28f28` at helper `+0x0`, and address point `0x4a28f60` at helper `+0x8`
+(the latter signed with modifier `helper+8`). It stores the enclosing
+`+0x18` value and `w21` at helper `+0x10/+0x14`. If the `+0x18` value is at
+most 15, it also places `helper+8` in a global table at a 0x30-byte indexed
+stride. P266's `+0x5ee0` callback path consumes the first pointer word; the
+second pointer and table view expose another interface candidate but do not
+name it. The raw vtables are zero in this saved image with no fixups, so the
+second target and runtime method semantics remain unresolved.
+
+The P268 disassembly and notes are preserved in
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN268_DCP_PLUG_HELPER_DUAL_POINTER_LAYOUT_STATIC/`.
+This adds a runtime capture field (`helper+8` and its table entry) to the
+hardware checklist; it does not supply a ColorElements value or justify a
+firmware response change. D572/D582 remain hypotheses.
+
+#### P270 static — reconstructed DCP segments distinguish vtable bytes from BSS
+
+The Type-4 reconstruction checker now accepts virtual-address samples and reports the containing Mach-O segment plus whether each byte is file-backed or zero-fill. Rebuilding the pinned 24A5430a `dcpfw` `rtxt`/`rdat` ranges reproduced the P233 extracted Mach-O hash exactly (`8175dc0ed5ae80ffb016d9b8b9a87ed024883ff8670b281b54dca8a3445a08d8`). The P268 address points `0x4a28f28` and `0x4a28f60` map to file-backed `__DATA_CONST` offsets `0x989f28` and `0x989f60`; 32 bytes at each are zero in this reconstructed static image. In contrast, table base `0x4984ba0` lies in the `__DATA` zero-fill tail and has no file offset, so its runtime entry contents cannot be inferred from the saved file.
+
+This sharpens the P268 capture target: inspect the loaded table and helper words at runtime, while treating the static vtable bytes as unavailable implementation data—not proof of null runtime dispatch. No provider method, ColorElements value, mode, firmware response, device tree, model behavior, or pixels were changed. The checker, five unit tests, sample report, and reproduction command are preserved in `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN270_DCP_VM_SAMPLE_SEGMENTS_STATIC/`.
+
+P275 reran the validator against the pinned 24A5430a bundle and P233 reference Mach-O. The reconstructed Mach-O hash still matches P233 exactly (`8175dc0e…45a08d8`). Address points `0x4a28f28` and `0x4a28f60` remain file-backed zero samples in `__DATA_CONST`; `0x4984ba0` remains in the `__DATA` zero-fill tail. This repeat validates the static inputs and mapping, not loaded vtable contents or runtime dispatch. The exact bundle/reference hashes, JSON report, validator, and test are preserved in `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/P275_DCP_STATIC_VERIFY/`.
+
+
+#### P273/P274 offline follow-up — A408 register discrepancy
+
+The P273 recovery record identifies its bootkc by SHA-256
+`da1e254ab81e31adae87c049da295b582dabbd4ba46096fc58f3e5467fc6e02c`. At
+static `0xfffffff00a0c4664`, this file decodes `braa x16,x17`; immediately
+before it, the vtable word is loaded into `x8` at `+0x4634`, copied into
+`x16`, and `x17` is derived from the slot address. P273's `x8` value
+`0xfffffff02a0c8ff4` is therefore retained as a target candidate, not proof
+of a completed branch or A408 operation.
+
+P274 captured the same runtime PC with `x8=0xfffffff02a0c8ff4`,
+`x16=0xbe54fff02808d110`, and `x17=0x998`. These live values conflict with
+the P273 file's register flow. P274's launch profile names the durable bootkc
+path, and a later hash check shows that file is also `da1e254a…`; the separate
+repository `firmware/bootkc` is `dc0f5b6a…` and was not the path in P274's
+profile. A different host bootkc file is therefore not the leading
+explanation, but no P274 guest-memory instruction dump has reconciled the
+register discrepancy. The P274 probe had armed a
+canonicalized `x16` candidate at `0xfffffff02808d110`; its silence cannot be
+scored as a branch miss. The source now preserves raw `x8/x16/x17/x2` and
+arms canonicalized `x8` as a candidate, pending validation against a fresh
+run with captured bootkc identity or guest code bytes. Even a hit proves
+only execution at that address, not callback identity or A408 semantics.
+
+At the P273 `x8` candidate, saved static bytes show a separate indirect call
+and nearby indexed-loop setup. This is adjacent control/data flow only; no
+class, method, or operation is assigned. P273's accepted gesture and sparse
+IOSurface remain measured; HMP was black. No DCP response, firmware, device
+tree, model, or pixel data changed. D572/D582 remain hypotheses. Details are
+in `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN273_REPLAY2B_LEGACY_UART_ONLY_ACK120_HOME_UNLOCK1/`.
+
+P276's offline QuartzCore symbol resolution corrected a consumer-side
+interpretation of the `Mode(-1)` fallback: the sampled addresses at
+`0x1e7058c58`, `0x1e7058e10`, `0x1e7058600`, and `0x1e7053bf9` are
+`CADeviceSupportsAPT` / `CADeviceIsVirtualized` cached state, not mode
+globals. This constrains AP-side branch analysis but adds no DCP provider,
+firmware-return, or panel-payload evidence. The detailed symbol mapping is in
+`docs/re/iomfb-dseries.md` under P276.
+
+P276 also resolved the QuartzCore initializer inputs behind those cached
+consumer-side flags. The `CADeviceSupportsAPT` block at `0x1844b3b08` uses a
+length-15 CFString at `0x1e90712c0` pointing to `SupportsPerseus`
+(`0x1848203f1`), then checks the separate `CA_DISABLE_APT` literal at
+`0x184820401`. The `CADeviceIsVirtualized` block at `0x18453bea0` uses a
+length-15 CFString at `0x1e90715c0` pointing to `IsVirtualDevice`
+(`0x1848206b0`). This identifies the static preference/configuration keys
+feeding QuartzCore's policy bits; it is not a DCP reply, panel property, or
+real ColorElements/TimingElements payload. No firmware or model response was
+changed.
+
+P277 adds a measured AP-side boundary to the DCP/scanout question. A
+1179×2556 Lock Screen IOSurface is pixel-bearing and is passed in `x3` to
+`fb_swap_set_layer`; the HMP framebuffer remains uniformly black. The same
+pointer later appears in `x2` at static `0x184472488`, but offline disassembly
+identifies that PC as a call to Objective-C selector `sender` with no colon,
+not a proven surface-handoff API. That register match does not show surface
+consumption by virtual scanout. P277 recorded no DCP callback value, display-mode answer,
+ColorElements payload, or firmware result, so it neither validates nor
+refutes D572/D582 and gives no basis for changing the model. The detailed
+pointer join, pixel metrics, and preserved frame are in P277 of
+`docs/re/iomfb-dseries.md`.
+
+P279 independently verified the AP-side IOSurface metadata layout against
+the exact saved shared-cache image: `_impl` is loaded through the runtime
+ivar-offset global, and its documented geometry/format/base fields match the
+read-only pixel probe. This improves the measurement path but adds no DCP
+provider return, firmware callback payload, display mode, or scanout result.
+P278's post-transition non-null swap surfaces were not pixel-sampled because
+the second-swipe helper moved the acceptance marker after the live sampler
+had loaded its older implementation. The source gate now recognizes the
+retained first marker, but this fix still needs fresh-boot validation. P278
+observed five non-null `x3` values among 32 `fb_swap_set_layer` entries; it
+did not sample the IOSurface bytes. Its later ordinary swipe was ACKed but
+produced no second accepted-transition marker in the bounded window. The
+DCP-side builder and provider values remain hardware-dependent, and D572/D582
+remain hypotheses.
+
+P278 reached SpringBoard's Home-entity/workspace path and recorded a
+gesture-confirmed lock-dismissal transition, followed by 32 swap-layer entries
+(five with non-null surface pointers) and uniformly black HMP frames. Because
+the sampler missed the moved marker, IOSurface contents remain unclassified.
+This establishes AP-side compositor activity only; it does not establish
+surface consumption by scanout or identify a DCP/provider failure. The
+durable child SHA-256 is
+`e6bc857412039eb5279d4db7339ba3f64e08b2e092310aa9091cd215f2941890`; the
+complete record is under
+`~/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN278_TWO_SWIPE_SURFACE1/`.
+
+#### P281 static — minimal real-device Plug/ColorElements capture fields
+
+The existing P265/P237/P255/P257 disassembly gives a bounded real-firmware
+capture plan. These addresses are static VAs in the saved T8140 DCP Mach-O
+(SHA-256 `8175dc0ed5ae80ffb016d9b8b9a87ed024883ff8670b281b54dca8a3445a08d8`);
+they must be relocated against the loaded image on a device, not copied as
+runtime breakpoints. The initiating type-0 Plug Sync callback is
+`0x42884c8`. On that invocation, preserve `this` (`x19`), callback argument
+(`x20`), `this+0x5ee0`, its runtime vptr/slot `+0x850` target and return, and
+the 32-bit `this+0x42bc` branch field. The continuing path separately calls
+slot `+0x1f0` on `this+0x5cd0` with `x1=x20`, then enters wrapper
+`0x428865c` and builder `constructColorElements` at `0x4288a60`.
+
+At the builder, record the identity/vptr of `this+0x5cd0` and the return from
+slot `+0x70` (bit 0 gates the property requests). If it passes, capture the
+runtime target, return object, count, and element identities for provider
+slots `+0x80` (published as `TimingElements`), `+0x88`
+(`PreferredTimingElements`), and `+0x78` (`ColorElements`); also record slots
+`+0x140` and `+0x150` and their `DisplayAttributes`/`Transport` transfers.
+Do not collapse `this+0x5ee0` and `this+0x5cd0`: static analysis assigns them
+different roles and does not prove pointer equality. The builder's later
+property-transfer order and each return should be timestamped on this same
+callback, so an absent property can be distinguished from a builder gate.
+The transfer call sites in static order are `ColorElements` `0x42893c0`,
+`TimingElements` `0x42893d8`, `PreferredTimingElements` `0x42893f0`,
+`DisplayAttributes` `0x4289408`, and `Transport` `0x4289420`. At each one,
+record null versus non-null input, the object's class when readable, and the
+transfer result. That makes a failed `+0x70` gate, a missing provider value,
+and a downstream serializer/transfer failure distinct observations.
+The corresponding static `x1` constants resolve to the exact NUL-terminated
+property keys in `__TEXT,__const`: `0x43cd04b` `ColorElements`, `0x43cd03c`
+`TimingElements`, `0x43cd148` `PreferredTimingElements`, `0x43cd160`
+`DisplayAttributes`, and `0x43cd184` `Transport`. These key addresses are
+firmware static VAs, not runtime AP addresses.
+
+For the `ColorElements` object, record the dynamic class/vtable and the
+serialized output around helper `0x4289694`: its property serializer is
+vtable slot `+0x30`; P236 identifies the known AFK metadata serializer at
+`0x41c8ed4` as emitting child IDs rather than recursively embedding element
+dictionaries. Capture the serialized bytes and the referenced child objects
+separately. The D126/D127/D128 transfer uses a four-byte total length of
+serialized count plus one, data chunks no larger than `0x1000`, and a 64-byte
+property key. These boundaries identify where to snapshot a live value, but
+do not predict that value or the panel mode.
+
+Pair that DCP event with the same device/build's AP-side DeviceTree and
+IOService properties, display-mode query/return, and the IOSurface/swap result.
+An `IODeviceTree.txt`/`IOService.txt` pair is useful for matching providers
+and published properties, but cannot by itself supply callback registers,
+provider returns, or serializer bytes. Those require a diagnostic environment
+that can observe the loaded DCP/RTKit execution; an ordinary iPhone owner
+should not be told that stock USB/Xcode access exposes these internal values.
+This is a capture specification derived from static control/data flow, not a
+claim that a retail phone can currently provide the trace. The full field
+checklist is in [`dcp-plug-capture-plan.md`](dcp-plug-capture-plan.md). The
+pinned Mach-O, bundle, and supporting disassembly are maintainer-side
+artifacts under
+`~/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN281_DCP_PLUG_CAPTURE_PLAN_STATIC/`;
+they are not included in this repository. That record preserves the
+31-instruction transfer-site disassembly and five constant-string bytes, so
+the call order and property-key names can be checked against the pinned image.
+No firmware, model, callback response, device-tree value, mode, or pixel was
+changed; D572/D582 remain hypotheses.
+
+
+### P282 — AP surface evidence is not a DCP Plug response
+
+P282 captured recognizable Lock Screen UI pixels in two non-null BackBoard IOSurfaces passed to `fb_swap_set_layer`: 1179×2556 at full RGB range, with time/status, charging battery, information control, and home indicator. The same boot's HMP framebuffer remained uniformly black through the 900-second post-transition observation. This establishes content on the AP/BackBoard side of the swap boundary, but gives no runtime DCP Plug callback registers, `ColorElements`/timing objects, serializer bytes, kernel submission result, or scanout proof. The P281 DCP Plug capture plan remains necessary for claims about real-device provider values and mode; the next QEMU trace instead follows the measured surface into H17P submission and mapping without assuming a DCP response.
+
+### P283 — AP Lock Screen pixels do not reveal the DCP Plug response
+
+P283 captured decoded Lock Screen content in BackBoard IOSurfaces that were
+also passed as non-null `x3` at `FB_SWAP_SET_LAYER_ENTRY`. This strengthens
+the AP-side pixel evidence beyond a detached allocation sample. HMP remained
+black; the A408 records are unresolved indirect dispatches, with no proven
+A407 mapping result or H17P `swap_submit`. P283 contains no runtime DCP Plug
+callback arguments, provider objects, `ColorElements`/timing serialization,
+or physical scanout evidence. It therefore does not validate or refute the
+D572/D582 hypothesis. Full records and images are in
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN283_CA_9C42_FULLBODY_SWAP_SUBMIT2/`.
+
+The run's follow-up swipe helper started after the QEMU monitor endpoint had
+closed and sent no input. A new helper is now wired to start before setup and
+wait for the accepted-gesture marker; the next run can measure whether a
+second ordinary swipe produces a new lock transition without automating
+passcode entry.
+
+#### P285 static — the builder's `+0x70` gate has an HPD log branch
+
+In the pinned Type-4 T8140 DCP Mach-O, `constructColorElements`
+(`0x4288a60`) calls property-provider slot `+0x70` at `0x4288aa8`; the test
+at `0x4288aac` skips all later property getters when result bit 0 is clear.
+The early path sets up a diagnostic at `UnifiedPipeline.cpp:0x2779` with
+message `HPD not present, skipping mode export` and tail-branches through
+the shared logger at `0x40311bc`. The value `0x40000001` in `x0` is a logger
+argument, not an observed API error returned to the caller. This pins down
+the precise static signature a real DCP Plug capture should recognize, but
+does not establish that the branch executes or explain QEMU's null
+`ColorElements`: the QEMU RTKit model does not run this firmware path. The
+upstream P231 `+0x130` gate is distinct and can bypass the builder entirely.
+No DCP response or display value was changed. The concise disassembly,
+referenced strings, input hash, and limits are preserved in
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN285_BUILDER_GATE_LOG_STATIC/`.
+D572/D582 remain hypotheses.
+
+#### P286 static — two candidate provider words feed the active builder provider
+
+Static entry `0x428fd5c` selects `this+0x5ce0` when `w1==0` and
+`this+0x5cd8` when `w1!=0`, then writes that pointer to `this+0x5cd0`. On the
+nonzero branch, byte `this+0x5641==1` is cleared; if bit 0 of
+`this+0x674a` was clear, the code emits the internal log
+`found stale fTimingsUpdatePowerState, pipe may not power on properly. Cleaning up`
+at `UnifiedPipeline.cpp:0x3bb8` and sets the bit. These are observed static
+stores and branch conditions, not names for the selector API or evidence of a
+hardware hot-plug transition. Record both candidate pointers, `w1`, the
+selected `+0x5cd0`, and both bytes alongside P285's `+0x70` result. The
+restored image has no raw pointer reference joining either candidate to
+P259's factory object. No runtime value, property, mode, firmware, or pixel
+was recovered or changed; the QEMU DCP model does not execute this path. The
+small disassembly and string record are in
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN286_PROVIDER_SELECTION_STATIC/`.
+D572/D582 remain hypotheses.
+
+
+#### P284 — accepted UI transition produced a white surface; HMP stayed black
+
+P284 cleared the measured migration and shell-service ladder on one boot:
+`DM_PERFORM_RETURN` returned `x0=0`, then the BKS migration/check-in returns
+and `SHELL_SERVICE_RETURN` followed. SpringBoard later published a non-null
+Home entity and entered ADFL. After an acknowledged Home-key relay and an
+ordinary swipe, the gesture recognizer and CoverSheet accepted a lock-screen
+transition (`x3=1`). This is UI-path evidence, not authentication; no
+passcode was entered.
+
+The first post-transition BackBoard IOSurface was nearly black. The next
+sample, taken 3.43 seconds later while the follow-up swipe was in progress,
+was a populated 1179×2556 surface with a white canvas, black Dynamic Island, time `5:06`, status indicators, and charging
+battery, but no Lock Screen content or app icons. The HMP screendump at the
+420-second endpoint remained uniformly black. The decoded IOSurface proves
+that BackBoard held those pixels at its sampled boundary; it does not prove
+that the surface was submitted, accepted by DCP, scanned out, or that Home UI
+was visible. The follow-up swipe was ACKed and the second IOSurface turned white during
+that swipe, but no second accepted gesture marker appeared. About 86 seconds
+after the first accepted marker, LockAllUI/LockUI callbacks and a workspace
+transition occurred (`x0=1` on transition return); the causal relationship is
+unknown. The child, integrity result, event/log files,
+and frames are preserved in
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN284_TWO_SWIPE_PRESENT1/`; the decoded sample SHA-256 is
+`c795b490aa609f396ef5cf2ccfc0244a5a59937025b94ff94c63c16429c802b0`. No
+model, firmware, device-tree, mode, or fixture response changed. D572/D582
+remain hypotheses.
+
+#### P287 static — pair selector and colorimetry property extraction
+
+The pinned Type-4 T8140 DCP Mach-O has a static helper at `0x42a796c` that
+tests bit 0 of byte `[x0+0x1b9]`. If clear, it logs at
+`UnifiedPipeline.cpp:0x5f2` and returns `0x80000104`. Otherwise it reads
+candidate-list pointers from `[x1+0x18]` and `[x1+0x20]`, with fallback calls
+through provider vtable slots `+0x78` and `+0x80`. It compares the first two
+32-bit words at `x1+0` and `x1+4` against values returned by vtable `+0x48`
+on each candidate's `+0x18` object, scanning the first list and then the
+second. The no-pair path logs at line `0x628`, then
+`WARNING: no color or timing modes from the link` at line `0x5fb`, and returns
+`0x80000001`. On a match, the second-list candidate receives two `+0xd0`
+calls (selector arguments 0 and 1); their 32-bit results are stored through
+caller-provided pointers at `x1+8` and `x1+0x10`. The helper retains the
+selected candidates, populates more state, and tail-branches to `0x42a5184`
+with `x0` set to the owning object, `x1=0`, and `x2=1`. The terminal status
+is not established by this slice.
+
+Adjacent helper `0x42a7c88` uses its third argument to select property keys:
+zero selects `Chromaticity` and `DefaultWhitePoint`; nonzero selects
+`DolbyVisionChromaticity` and `DolbyVisionWhitePoint`. It reads Red, Green,
+and Blue child X/Y values into six float slots at the caller's x2 buffer, and
+white-point X/Y into x1 offsets 0 and 4. Getter integers are converted with
+a 16-bit fractional shift before being narrowed to floats. The literal keys
+support a colorimetry interpretation, but units, ranges, mode association,
+runtime values, and API semantics remain unknown.
+
+This gives a real-device capture concrete fields to sample: readiness byte,
+list pointers, comparison keys/returns, selected candidates, selector outputs,
+selected normal-versus-Dolby-Vision property keys, and the X/Y output buffers.
+This remains static guidance only; the QEMU DCP model does not execute this
+firmware path. None of the branches or values was observed in the VM. Static
+disassembly through the matched path, strings, buffer map, and source-image
+hash are in
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN287_LINK_MODE_FALLBACK_STATIC/`.
+No display input was changed; D572/D582 remain hypotheses.
+
+#### P288 static — DCPDisplayInterface fallback is measurable but not yet a ColorElements join
+
+The pinned Type-4 T8140 DCP binary has a helper at `0x41df3a4` whose log
+arguments identify `DCPDisplayInterface.cpp:0x51a`. It gets a display
+interface through the input object's vtable `+0x198`, then queries that
+interface's `+0x78` and `+0x80` link-mode lists. If either is null, the helper
+logs `no color or timing modes from the link. Faking, since we have non-null
+VI.` and returns through a one-entry fallback: two output counts become 1,
+two 24-byte records are allocated, interface methods `+0x138` and `+0x130`
+populate words in the second record, and the first includes `0x003c0000` at
+offset `+0x0c` plus `0x20` at `+0x10`. The exact record meanings are not
+established. `0x003c0000` equals 60 in 16.16 representation, but that is only
+a numeric observation until a schema or runtime value confirms units.
+
+This names an alternate lower-level fallback to P287's `UnifiedPipeline`
+pair selector. The similar “no color or timing modes from the link” wording
+does not prove the two helpers share records or that this output is the
+primary display's `ColorElements`/`TimingElements`. A real-device capture
+should record the `+0x198` result, list results, `+0x130`/`+0x138` return
+values, output counts/records, and status, then follow object identity into
+the DCP builder and publication. Both `0x41df3a4` and P287's `0x42a796c`
+call vtable `+0x78`/`+0x80` with matching PAC-diversifier immediates
+`0x8c10`/`0x37f7`; that is a structural slot match, not proof of the same
+receiver or returned lists. The pass recovered no direct call/data reference
+connecting `0x41df3a4` to the publication. The QEMU model does not run this
+firmware path; no response or display value was changed. Disassembly,
+source strings, and hashes are in
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN288_DCP_INTERFACE_MODE_FALLBACK_STATIC/`.
+D572/D582 remain hypotheses.
+
+#### P290 static follow-up — the pair selector's zero-input modeset depends on prior state
+
+The same pinned DCP disassembly resolves part of P287's previously open tail
+branch. At `0x42a7c84`, a matched candidate pair tail-branches to
+`0x42a5184` with `x1=0` and `x2=1`. The `x1==0` branch in `0x42a5184` logs
+`plug gated: modeset received.` at `UnifiedPipeline.cpp:0x38f` and jumps to
+`0x42a5264`; it does not execute the nearby code that stores `x22` into
+`[self+0x188]`. The function then loads the preexisting `[self+0x188]`, sets
+its default status to `0x8000000a`, and branches to the return when that
+pointer is null. Thus the null-state outcome is statically `0x8000000a`. If
+the pointer is non-null, it calls `0x42a6634`, which checks cached byte
+`[self+0x1b8]`; if that bit is clear, it calls the prior object's vtable
+`+0xf8`, stores the returned bit in `[self+0x1b8]`, and returns that bit. A
+false result logs `IOAVVideoInterface open failed` at
+`UnifiedPipeline.cpp:0x127`; the caller cleans up and still returns its
+default `0x8000000a`. A true result continues into the existing modeset/state
+path, but this slice does not establish its final status or visible display
+result. The zero `x1` from P287 does not by itself prove that the selected
+pair is rejected or published: the runtime value of `[self+0x188]` and the
+result/cached state of this open gate are the missing discriminators.
+
+A separate caller at `0x42a9d18` passes `x8` in `x1` after its own gates,
+then calls `0x42a6634` and returns zero. That caller does not establish the
+prior state or return behavior of P287's tail-call path. This is static
+control-flow only; no runtime value, device-tree property, color/timing
+payload, or scanout behavior is inferred. The excerpt and input/disassembly
+hashes are preserved in
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN290_MODESET_NULL_INPUT_STATIC/`.
+An additional constructor/cleanup excerpt shows the initialization path in
+`0x42a6d68` setting `[self+0x188]` to null and `[self+0x1b8]` to zero after
+the non-null-input and helper-success checks. Cleanup at `0x42a4ca8` releases
+the `+0x188` value when non-null and then clears the field. Together with the
+replace/retain path at `0x42a5240..0x42a5260`, this supports a managed pointer
+field at `+0x188` and a cached state byte at `+0x1b8`; the pointee's concrete
+class and method meaning remain unknown. The argument loaded from global
+`0x4985090` at `0x42a666c` is in the Mach-O `__DATA,__bss` range
+`[0x4929000, 0x49907e8)`. Static zero-fill alone does not establish the
+runtime argument value. A cross-reference found a writer at `0x431e590` in
+the AppleDCPDisplayService.cpp routine beginning `0x431e550`: it stores that
+routine's entry `x0` at the global near the `DCPI2C, Publish` log and a
+subsequent `0x4280950` call. This supports an object-pointer flow into later `x1`
+arguments, but persistence and runtime identity remain unverified. For a
+matching-device capture, record the global after initialization, the pointed-
+to object's class/type if available, the vtable slot `+0xf8`, the call result
+and cached byte, and the caller's branch/status through `0x42a527c` and
+cleanup/return. The lifecycle excerpt is
+`modeset-object-lifecycle-and-global.txt` in the same recovery directory
+(SHA-256 `b6e8801e0513736db67e3e30a74448f386245dff8bbe24407bab7a1afdf4d690`).
+On matching hardware, the high-value sample is: capture `self` and
+`[self+0x188]`/`[self+0x1b8]` at `0x42a6634`; identify the pointed-to
+interface by runtime metadata if possible; record its vtable `+0xf8`, runtime
+`x1` from `0x4985090`, `x2`/`x3`, the returned `w0` at `0x42a6690`, the
+cached byte afterward, and the caller's branch/status through `0x42a527c`
+and cleanup. Preserve raw values; do not invent a property or substitute a
+guessed interface object. D572/D582 remain hypotheses.
+
+The same BSS address is also loaded at a distinct close-labeled callsite:
+caller `0x42a62a0` tests `[self+0x1bd]`, reaches interface vtable `+0x100` at
+`0x42a65e8` with `x0=[self+0x188]`, `x1=[0x4985090]`, and `x2=0`, then logs
+`ioav i/f is now closed!` and clears cached state. Treat this separately
+from open-labeled helper `0x42a6634` / vtable `+0xf8` at `0x42a668c`; using
+the same global address does not make the operations equivalent or reveal a
+payload type. The expanded dual-callsite sample plan is in
+`modeset-object-lifecycle-and-global.txt` and
+`matching-device-runtime-capture.txt` under the durable PLUGIN290 static
+record directory.
+
+P290 dual-global follow-up: a targeted cross-reference in the same
+`0x431e550` AppleDCPDisplayService startup routine shows entry `x0` stored at
+both `0x4985090` (`0x431e590`) and `0x49850a8` (`0x431e658`). Prior static
+analysis identifies `0x49850a8` as the AppleDCPDisplayService global, so this
+path initializes both slots from the same pointer. That strengthens the
+static pointer-flow hypothesis for `x1` at the VideoInterfaceIOAV open- and
+close-labeled calls. It does not establish runtime equality, later overwrites,
+dynamic type, virtual-method semantics, display properties, or scanout. The
+updated lifecycle excerpt SHA-256 is
+`b6e8801e0513736db67e3e30a74448f386245dff8bbe24407bab7a1afdf4d690`; the
+matching-device checklist now asks to compare both globals at startup and both
+callsite `x1` values.
+
+P290 offline follow-up — DCPDisplayInterface fallback output shape: the
+`0x41df3a4` helper queries the receiver at vtable `+0x198`, then queries that
+result at `+0x78` and `+0x80`. If either list query returns null, the helper
+logs `DCPDisplayInterface.cpp:0x51a`, “no color or timing modes from the
+link. Faking, since we have non-null VI,” and emits two one-entry output
+arrays before returning status zero. The output descriptor in `x2` supplies
+count-pointer slots at `+8` and `+0x18` and array-pointer slots at `+0` and
+`+0x10`. Each count is set to one and each array receives one 24-byte record.
+The first record has four 32-bit ones and `0x20` at `+0x10`; the second
+stores the `+0x130` and `+0x138` call results at `+4/+8` and `0x003c0000` at
+`+0x0c`. Those are observed record bytes, not decoded field meanings or
+units. When both list results exist, a separate list/count path performs
+descriptor-driven comparisons. This fallback wording and shape do not prove
+that the arrays are the primary panel's `ColorElements`/`TimingElements` or
+that they reach the `UnifiedPipeline` builder. Full disassembly, exact output
+offsets, and runtime-sampling plan are in
+`fallback-helper-output-shape.txt` in the durable
+`UI_CLASS16_REFRESH60_DM_PLUGIN290_MODESET_NULL_INPUT_STATIC` record. Its
+SHA-256 is
+`29376240f4693620b5cfccbf65f9e2613201eb2109482b2860b504c43136a858`.
+
+P291 final measured shell-to-lock result: after the shell/check-in and
+SpringBoard setup markers, two separate cover-sheet pan gestures were
+accepted by SpringBoard. Three readable 1179x2556 BackBoard IOSurface captures
+at `FB_SWAP_SET_LAYER_ENTRY` contain recognizable Lock Screen clock/status;
+one also contains the swipe-up instruction. These captures all precede the
+second accepted gesture. About 169 seconds after that second gesture,
+backboardd made three more `FB_SWAP_SET_LAYER_ENTRY` calls, but each had x3=0
+at the observed IOSurface argument; x2 was 0/1/2 and the same numeric x1 layer
+pointer was reported. The adjacent sender calls also carried no x3 surface.
+This burst provides no pixel sample and is not a blank-frame result. During
+the remaining 548 seconds, CA commit and Render Mach messages continued, but
+there were no more swap, OGL/server/display render, or IOSurface samples.
+The observation ended at its 900-second post-first-transition bound. HMP
+screendumps remained black. No passcode was entered, authenticated unlock was
+not observed, and no Home-screen image was established. Durable final
+chronology and pixel manifest are in
+`recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN291_RETURN_DESCRIPTOR1/iosurface-capture-final.txt`
+and `iosurface-lockscreen/manifest.json`.
+
+#### P291 host screendump source trace — HMP samples the QEMU console surface
+
+The `screendump` command does not read the captured BackBoard IOSurface
+pointer. `qmp_screendump()` in `qemu-sptm/ui/ui-qmp-cmds.c` looks up the
+requested console (or console index 0 by default), waits for that console's
+update, and serializes its current `DisplaySurface`. For this machine, the
+`darwin-fb` console is initially backed directly by the XNU boot-framebuffer
+RAM described by `boot_args.Video` (`qemu-sptm/hw/arm/darwin_fb.c`). Its
+surface is replaced with copied DCP pixels only if
+`darwin_fb_present_bgra()` is called. The only call found is in
+`qemu-sptm/hw/arm/darwin_iomfb.c`, after `iomfb_scanout()` parses a swap/A407
+surface descriptor, resolves the `dart-disp0` DVA, and copies the pixels.
+
+Therefore P291's black HMP images and nonblack BackBoard IOSurface samples
+are measurements at different boundaries. HMP black establishes that the
+QEMU console surface contained black pixels at capture time; it does not
+establish that SpringBoard's captured IOSurface was black or that a real
+device scanout path discarded it. The source trace explains why those
+observations can coexist, but does not establish whether P291 reached the
+IOMFB presenter or why it did not. Follow-up against P291's still-live QEMU
+process narrows this: its environment had `DARWIN_DCP_IOMFB_A408_SCANOUT=0`
+and `DARWIN_DCP_IOMFB_A407_SCANOUT=1`, while the model reads the distinct
+`DARWIN_DCP_IOMFB_SCANOUT` name to enable the A408 copy path. The A408-named
+RPCs in the log therefore do not imply pixel copy. A407 scanout was configured
+as enabled, but P291 stderr through guest time `1791813213.887` had no A407
+candidate, `iomfb: presented`, scanout failure, or DART scanout line. The
+`A408_SCANOUT` spelling was not read by QEMU; the runner now explicitly sets
+the actual `DARWIN_DCP_IOMFB_SCANOUT=0` switch for future runs. This accounts
+for why the QEMU console remained on its black boot framebuffer in this run;
+it does not explain a real device's physical panel output. Keep
+`FB_SWAP_SET_LAYER_ENTRY` surface bytes, IOMFB/DART presenter logs, and HMP
+console dumps as separate stages. No VNC, mode, firmware, or display response
+was changed. Source locations are
+`ui/ui-qmp-cmds.c:qmp_screendump`, `hw/arm/darwin_fb.c:darwin_fb_present_bgra`
+and `darwin_fb_init`, and `hw/arm/darwin_iomfb.c:iomfb_scanout`.
+
+P291 final artifact integrity: `iosurface-capture-final.txt` is SHA-256
+`04b07056f6e8675515b066d7e5e11f17c1f7908ca00b48b5494465e62c58db13`; the
+full HMP-versus-IOSurface source trace, including the post-gesture x3=0 burst
+and remaining 548-second no-swap/render interval, is
+`qemu-hmp-vs-iosurface-source-trace.txt`, SHA-256
+`04da7891ca12db5ef1a19f414e29db9981fa89dbe28c6228f62be94a72c15a68`.
+Neither the null-surface burst nor later callback silence is a pixel verdict.
+
+P292 offline DCP reference audit: the complete saved disassembly has no direct
+same-image branch to helper `0x41df3a4`, and the Mach-O has no exact raw
+pointer or chained-fixup target for it. The nearby `constructColorElements`
+and `constructTimingElements` strings are diagnostic labels passed to the
+DCP logger on allocation-failure paths, not builder calls. The separate
+`0x4288a60` virtual-interface path has no demonstrated consumption of the
+helper's two arrays. Their schema and route to publication therefore remain
+unknown. See
+`recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN292_FALLBACK_BUILDER_XREF_STATIC/fallback-to-elements-reference-audit.txt`
+(SHA-256
+`93fe8bc9b9284f765754a47c26ef79e869ea13d4dd4673313ab2137f199c8bde`) for
+the search scope and limitations. The helper and the builder use provider
+slots `+0x78/+0x80` with matching PAC diversity values `0x8c10/0x37f7`; that
+supports a shared-interface hypothesis but does not prove identical receiver
+or range objects. The useful real-device discriminator is a same-event
+pointer comparison of input `+0x198`, builder `this+0x5cd0`, the two slot
+returns, and the helper's output arrays. Durable instruction excerpts and
+reference-search output are saved as `helper-fallback.dis`,
+`log-label-callsite.dis`, `unified-provider-slots.dis`,
+`fixup-chain-details.txt`, and `reference-search.txt` beside the P292 note.
+
+P293 observer-side follow-up: the BackBoard swap probe now records the x3
+surface-argument classification before emitting its JSON event and continues
+counting pointer statuses after the bounded image-read cap. Null, invalid,
+read-attempted, and valid-but-capped cases are separate. The classifier has
+four passing pure tests and the Python/runner syntax checks pass, but the
+change has not been boot-validated. It does not revise P291's no-sample
+observation. Durable note:
+`recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN293_POSTHOME_SURFACE_STATUS_PROBE/probe-hardening.txt`
+(SHA-256
+`422c4e5454d04ea3d7bef37ac2ef9fc7e1bda38c9d4d578ab26660ebc3498d0e`).
