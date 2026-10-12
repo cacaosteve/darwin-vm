@@ -40,6 +40,7 @@ def observer_ready(path: Path) -> bool:
             return ("POSTHOME_PRESENT_READY " in prefix or
                     "POST_SHELL_HOME_INPUT_READY " in prefix or
                     "POST_SHELL_HOME_GESTURE_READY " in prefix or
+                    "POST_SHELL_HOME_GESTURE_STAGED_READY " in prefix or
                     "POST_SHELL_HOME_UNLOCK_DIAG_READY " in prefix)
     except OSError:
         return False
@@ -125,6 +126,8 @@ def run_input(module, run: Path, args: list[str], prefix: Path,
     original_execute = module.QMP.execute
     qmp_instances = []
     left_contact = set()
+    contact_cleanup = {"attempted": False, "released": False,
+                       "errors": []}
 
     def retry_execute(self, command, **kwargs):
         if self not in qmp_instances:
@@ -163,6 +166,7 @@ def run_input(module, run: Path, args: list[str], prefix: Path,
         # position. Never leave a host-side touch held merely because an
         # intermediate gesture record hit a transient debug pause.
         for qmp in list(left_contact):
+            contact_cleanup["attempted"] = True
             deadline = time.monotonic() + 30
             while time.monotonic() < deadline:
                 try:
@@ -171,9 +175,10 @@ def run_input(module, run: Path, args: list[str], prefix: Path,
                         original_execute(qmp, "input-send-event", events=[
                             dict(type="btn", data=dict(button="left", down=False))])
                         left_contact.discard(qmp)
+                        contact_cleanup["released"] = True
                         break
-                except Exception:
-                    pass
+                except Exception as error:
+                    contact_cleanup["errors"].append(repr(error))
                 time.sleep(0.1)
 
     module.QMP.execute = retry_execute
@@ -185,16 +190,25 @@ def run_input(module, run: Path, args: list[str], prefix: Path,
     except Exception as error:  # record all input failures, then stop safely
         best_effort_release()
         return 99, {"ok": False, "exception": repr(error),
-                    "stdout": output.getvalue()}
+                    "stdout": output.getvalue(),
+                    "contact_cleanup": contact_cleanup}
     else:
         rc = 0
     finally:
+        # `native_input` can exit through SystemExit after an ACK/dispatch
+        # timeout while the QMP mouse button is still down. Always attempt a
+        # release on every exit path; a held contact can poison later guest
+        # input and make the next gesture evidence ambiguous.
+        if left_contact:
+            best_effort_release()
         module.QMP.execute = original_execute
         sys.argv = old_argv
     try:
         row = json.loads(output.getvalue())
     except json.JSONDecodeError:
         row = {"stdout": output.getvalue()}
+    if contact_cleanup["attempted"]:
+        row["contact_cleanup"] = contact_cleanup
     return rc, row
 
 
@@ -272,6 +286,10 @@ def main() -> int:
     if args.followup_swipe_delay < 0 or args.followup_swipe_hold_ms < 1 or \
             args.followup_swipe_steps < 2:
         parser.error("follow-up swipe delay/duration/steps are invalid")
+    if args.followup_swipe_delay and \
+            args.followup_swipe_delay >= args.post_input_observe:
+        parser.error("--followup-swipe-delay must be shorter than "
+                     "--post-input-observe so the follow-up is reachable")
     if args.swipe_steps < 2:
         parser.error("--swipe-steps must be at least 2")
     x1, y1, x2, y2 = args.swipe_coords

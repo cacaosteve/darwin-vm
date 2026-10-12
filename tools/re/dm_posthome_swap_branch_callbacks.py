@@ -1,8 +1,11 @@
-"""Read-only handoff-to-SwapEnd/A407/A408 bracket on repaired CLASS16.
+"""Read-only set-layer/sender-to-SwapEnd/A407/A408 bracket.
 
-The first post-home non-null fb_swap_set_layer handoff selects one
-backboardd thread and IOMFB object. Kernel submit sites count only while
-that thread is inside a matching _kern_SwapEnd. No state is modified.
+The first post-home non-null ``fb_swap_set_layer`` surface selects one
+backboardd thread and framebuffer object. A later Objective-C ``sender``
+call is recorded only as a same-thread/register-correlated candidate; it is
+not assumed to consume or hand off the surface. Kernel submit sites count
+only while that thread is inside a matching ``_kern_SwapEnd``. No state is
+modified.
 """
 
 import json
@@ -21,7 +24,7 @@ USER_SITES = (
     (0x18446D0C0, "FINISH_SWAP_X22"),
     (0x18446D0CC, "FINISH_SWAP_X22_RETURN"),
     (0x18447238C, "FB_SWAP_SET_LAYER_ENTRY"),
-    (0x184472488, "FB_SWAP_HANDOFF"),
+    (0x184472488, "FB_SWAP_SENDER_CALL"),
     (0x22A391EA0, "SET_LAYER_THUNK"),
     (0x22A3918F4, "KERN_SET_LAYER"),
     (0x22A391750, "END_THUNK"),
@@ -42,7 +45,8 @@ META = {}
 COUNTS = {}
 RETURNS = set()
 UPDATES = {}
-HANDOFF = {}
+SENDER_CANDIDATE = {}
+RECENT_SET_LAYER = {}
 KERN_ENDS = {}
 WAITS = {}
 
@@ -107,54 +111,71 @@ def on_hit(frame, bp_loc, _context):
         return False
     end_object = None
 
-    # Before selection, record only the nearby update and End activity.
+    # Save the actual fb_swap_set_layer x3 argument and the receiver the
+    # method loads from [x1+0x18]. The later sender call can be joined to this
+    # same-thread candidate without calling its x2 register a formal argument.
     if label == "FINISH_UPDATE_ENTRY":
-        if HANDOFF:
+        if SENDER_CANDIDATE:
             return False
         UPDATES[thread] = {"display": bks._reg(frame, "x0"),
                            "caller": bks._reg(frame, "lr")}
         _arm_return(frame, "FINISH_UPDATE_RETURN", thread)
-    elif label == "FB_SWAP_HANDOFF":
-        surface = bks._reg(frame, "x2")
-        if surface and not HANDOFF:
-            HANDOFF.update(thread=thread, object=bks._reg(frame, "x0"),
-                           surface=surface, update=UPDATES.get(thread),
-                           start=time.time())
-            print("POSTHOME_NONNULL_HANDOFF " + json.dumps(HANDOFF, sort_keys=True),
-                  flush=True)
+    elif label == "FB_SWAP_SET_LAYER_ENTRY":
+        context = bks._reg(frame, "x1")
+        RECENT_SET_LAYER[thread] = {
+            "time": time.time(), "context": context,
+            "receiver_candidate": _u(process, context + 0x18, 8)
+            if context else None,
+            "surface_x3": bks._reg(frame, "x3"),
+            "layer": bks._reg(frame, "x2"),
+            "update": UPDATES.get(thread),
+        }
+    elif label == "FB_SWAP_SENDER_CALL":
+        receiver = bks._reg(frame, "x0")
+        x2_register = bks._reg(frame, "x2")
+        previous = RECENT_SET_LAYER.get(thread)
+        if (x2_register and not SENDER_CANDIDATE and previous and
+                previous.get("surface_x3") == x2_register and
+                previous.get("receiver_candidate") == receiver):
+            SENDER_CANDIDATE.update(thread=thread, object=receiver,
+                           surface_set_layer_x3=previous["surface_x3"],
+                           sender_call_x2_register=x2_register,
+                           register_match=True, set_layer=previous,
+                           update=UPDATES.get(thread), start=time.time())
+            print("POSTHOME_SENDER_CALL_CANDIDATE " +
+                  json.dumps(SENDER_CANDIDATE, sort_keys=True), flush=True)
     elif label == "KERN_END":
-        if not HANDOFF or thread != HANDOFF["thread"]:
+        if not SENDER_CANDIDATE or thread != SENDER_CANDIDATE["thread"]:
             return False
         obj = bks._reg(frame, "x0")
         KERN_ENDS[thread] = obj
         _arm_return(frame, "KERN_END_RETURN", thread)
     elif label in ("NODE_LINKED", "SUBMIT_GATE_1", "SUBMIT_GATE_2",
                    "A407_BUILD", "A408_BUILD"):
-        if label == "A408_BUILD" and HANDOFF:
+        if label == "A408_BUILD" and SENDER_CANDIDATE:
             # A global positive control; only same-thread/object hits are
             # eligible to be paired with the selected handoff.
             pass
-        elif not HANDOFF or thread != HANDOFF["thread"] or thread not in KERN_ENDS:
+        elif not SENDER_CANDIDATE or thread != SENDER_CANDIDATE["thread"] or thread not in KERN_ENDS:
             return False
     elif label in ("END_THUNK", "VIRT_END", "SET_LAYER_THUNK",
                    "KERN_SET_LAYER", "FINISH_SWAP_X22",
                    "FINISH_SWAP_X22_RETURN", "FB_SWAP_SET_LAYER_ENTRY"):
-        if HANDOFF and thread != HANDOFF["thread"]:
+        if SENDER_CANDIDATE and thread != SENDER_CANDIDATE["thread"]:
             return False
-        if not HANDOFF and label in ("SET_LAYER_THUNK", "KERN_SET_LAYER",
-                                     "FB_SWAP_SET_LAYER_ENTRY"):
+        if not SENDER_CANDIDATE and label in ("SET_LAYER_THUNK", "KERN_SET_LAYER"):
             return False
     elif label == "FINISH_UPDATE_RETURN":
-        if not HANDOFF or thread != HANDOFF["thread"]:
+        if not SENDER_CANDIDATE or thread != SENDER_CANDIDATE["thread"]:
             return False
     elif label == "KERN_END_RETURN":
         end_object = KERN_ENDS.pop(thread, None)
-        if end_object != HANDOFF.get("object"):
+        if end_object != SENDER_CANDIDATE.get("object"):
             return False
     elif label == "KERN_WAIT_ENTRY":
         obj = bks._reg(frame, "x0")
         fence = bks._reg(frame, "w1")
-        if obj != HANDOFF.get("object") or fence != HANDOFF.get("swap_id"):
+        if obj != SENDER_CANDIDATE.get("object") or fence != SENDER_CANDIDATE.get("swap_id"):
             return False
         WAITS[thread] = {"object": obj, "fence": fence,
                          "options": bks._reg(frame, "w2"),
@@ -173,15 +194,15 @@ def on_hit(frame, bp_loc, _context):
               "lr": bks._reg(frame, "lr"), "x0": bks._reg(frame, "x0"),
               "x1": bks._reg(frame, "x1"), "x2": bks._reg(frame, "x2"),
               "x3": bks._reg(frame, "x3"),
-              "after_handoff": bool(HANDOFF),
-              "handoff_match": bool(HANDOFF and thread == HANDOFF["thread"])}
+              "after_sender_call_candidate": bool(SENDER_CANDIDATE),
+              "sender_call_receiver_match": bool(SENDER_CANDIDATE and thread == SENDER_CANDIDATE["thread"])}
     if label in ("END_THUNK", "SET_LAYER_THUNK"):
         offset = 0xC28 if label == "END_THUNK" else 0xB38
         fields["dispatch_slot"] = _u(process, fields["x0"] + offset, 8) if fields["x0"] else None
     if label in ("KERN_END", "KERN_END_RETURN", "END_THUNK", "VIRT_END",
                  "SET_LAYER_THUNK", "KERN_SET_LAYER"):
         obj = end_object if label == "KERN_END_RETURN" else fields["x0"]
-        fields["object_match"] = bool(HANDOFF and obj == HANDOFF["object"])
+        fields["object_match"] = bool(SENDER_CANDIDATE and obj == SENDER_CANDIDATE["object"])
         if label == "KERN_END_RETURN":
             fields["end_object"] = end_object
     if label in ("NODE_LINKED", "SUBMIT_GATE_1", "SUBMIT_GATE_2",
@@ -193,10 +214,10 @@ def on_hit(frame, bp_loc, _context):
                       word_3d8=_u(process, node + 0x3D8, 4),
                       gate_5870=_u(process, x26 + 0x870, 1),
                       gate_5df0=_u(process, x26 + 0xDF0, 1),
-                      end_object_match=bool(HANDOFF and
-                                            KERN_ENDS.get(thread) == HANDOFF["object"]))
+                      end_object_match=bool(SENDER_CANDIDATE and
+                                            KERN_ENDS.get(thread) == SENDER_CANDIDATE["object"]))
         if label == "NODE_LINKED" and fields["end_object_match"]:
-            HANDOFF["swap_id"] = fields["swap_id"]
+            SENDER_CANDIDATE["swap_id"] = fields["swap_id"]
     if label == "KERN_WAIT_ENTRY":
         fields.update(object=WAITS[thread]["object"],
                       fence=WAITS[thread]["fence"],
@@ -223,7 +244,8 @@ def install(debugger, slide):
     COUNTS.clear()
     RETURNS.clear()
     UPDATES.clear()
-    HANDOFF.clear()
+    SENDER_CANDIDATE.clear()
+    RECENT_SET_LAYER.clear()
     KERN_ENDS.clear()
     WAITS.clear()
     for static, label in USER_SITES:

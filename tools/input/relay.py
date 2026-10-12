@@ -60,8 +60,8 @@ def main():
         # First native Recap tap initialization took 13.002 s in the bounded
         # SETTINGS_V6_TRACE2 run. This is a submission bound, not tap duration.
         args.ack_timeout = 30 if args.tap or args.swipe else 10
-    if not 0 < args.ack_timeout <= 120:
-        parser.error('--ack-timeout must be in (0, 120] seconds')
+    if not 0 < args.ack_timeout <= 300:
+        parser.error('--ack-timeout must be in (0, 300] seconds')
     if args.ping_count < 1 or (args.ping_count != 1 and not args.ping):
         parser.error('--ping-count must be positive and used with --ping')
     if (args.release or args.tap or args.swipe) and not all(0 <= v <= 32767 for v in (args.release or args.tap or args.swipe)):

@@ -10,6 +10,7 @@ import os
 import time
 
 import lldb
+from capture_marker_gate import accepted_transition_marker
 
 
 STATIC_RETURN = 0x1843f9804  # SRV_MACHMSG_RET from display_port_callbacks.py
@@ -73,17 +74,7 @@ def _write_event(payload):
 def on_break(frame, bp_loc, _dict):
     global HITS, TOTAL_HITS
     if AFTER_LOCK_TRANSITION:
-        if not TRANSITION_MARKER or not os.path.isfile(TRANSITION_MARKER):
-            return False
-        try:
-            with open(TRANSITION_MARKER) as stream:
-                marker = json.load(stream)
-        except (OSError, json.JSONDecodeError):
-            return False
-        if (marker.get("for_user_gesture") != 1 or
-                marker.get("gesture_sequence_confirmed") is False or
-                (isinstance(marker.get("dismissal_gesture"), dict) and
-                 marker["dismissal_gesture"].get("confirmed") is False)):
+        if accepted_transition_marker(TRANSITION_MARKER) is None:
             return False
     process = frame.GetThread().GetProcess()
     sp = _reg(frame, "sp")

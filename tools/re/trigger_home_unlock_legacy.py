@@ -4,9 +4,10 @@
 The current guest helper accepts DVMINPUT1, while the DVMI2 trigger does not
 interoperate with that helper version. This companion waits for the real shell,
 gesture observer, and guest input service, sends one ordinary Home event, then
-waits for SpringBoard to create its Home entity. It sends one Recap bottom-up
-swipe, requires a pan-confirmed lock dismissal, and allows a bounded render
-sample before asking the runner to freeze and archive the child.
+waits for SpringBoard to create its Home entity and return from the measured
+ADFL call. It sends one Recap bottom-up swipe, requires a pan-confirmed lock
+dismissal, and allows a bounded render sample before asking the runner to
+freeze and archive the child.
 """
 
 import argparse
@@ -66,6 +67,22 @@ def wait_log_marker(follower, marker, deadline):
         time.sleep(1)
     print("LEGACY_INPUT_TIMEOUT " + json.dumps({
         "waiting_for": marker,
+    }, sort_keys=True), flush=True)
+    return False
+
+
+def wait_any_log_marker(follower, markers, deadline):
+    while time.monotonic() < deadline:
+        for line in follower.read_lines():
+            for marker in markers:
+                if marker in line:
+                    print("LEGACY_INPUT_MARKER " + json.dumps({
+                        "marker": marker, "line": line.strip(),
+                    }, sort_keys=True), flush=True)
+                    return True
+        time.sleep(1)
+    print("LEGACY_INPUT_TIMEOUT " + json.dumps({
+        "waiting_for_any": markers,
     }, sort_keys=True), flush=True)
     return False
 
@@ -142,11 +159,19 @@ def main():
     parser.add_argument("--timeout", type=float, default=4050.0,
                         help="maximum wait for a usable Home/input window")
     parser.add_argument("--post-transition-secs", type=float, default=180.0)
+    parser.add_argument("--accepted-transition-timeout", type=float, default=180.0,
+                        help="wait after the swipe for SpringBoard's accepted-dismissal marker")
     parser.add_argument("--ack-timeout", type=float, default=60.0)
     parser.add_argument("--relay-timeout", type=float, default=240.0)
+    parser.add_argument("--swipe-backend", choices=("direct", "recap"),
+                        default="recap",
+                        help="native immediate-touch or buffered Recap swipe")
     args = parser.parse_args()
-    if min(args.timeout, args.ack_timeout, args.relay_timeout) <= 0:
+    if min(args.timeout, args.ack_timeout, args.relay_timeout,
+           args.accepted_transition_timeout) <= 0:
         parser.error("timeouts must be positive")
+    if args.ack_timeout > 300:
+        parser.error("ack-timeout must be <= 300 seconds (relay.py limit)")
     if args.post_transition_secs < 0:
         parser.error("post-transition-secs must be non-negative")
 
@@ -168,7 +193,15 @@ def main():
     if not wait_file(shell_marker, deadline, "SHELL_SERVICE_RETURN"):
         return 2
     follower = LogFollower(lldb_log)
-    if not wait_log_marker(follower, "POST_SHELL_HOME_GESTURE_READY", deadline):
+    ready_markers = (
+        "POST_SHELL_HOME_GESTURE_READY",
+        "POST_SHELL_HOME_GESTURE_PRESENT_READY",
+        "POST_SHELL_HOME_GESTURE_STAGED_READY",
+    )
+    print("LEGACY_INPUT_WAITING_FOR_OBSERVER " + json.dumps({
+        "markers": ready_markers, "lldb_log": str(lldb_log),
+    }, sort_keys=True), flush=True)
+    if not wait_any_log_marker(follower, ready_markers, deadline):
         return 2
     if not wait_file(uart, deadline, "legacy guest input UART"):
         return 2
@@ -189,6 +222,23 @@ def main():
     if not wait_log_marker(LogFollower(lldb_log),
                            '"label": "SB_HOME_ENTITY_READY"', deadline):
         return 2
+    # The Home entity can be reported while SpringBoard is still inside the
+    # ADFL call. P238 showed that return arriving roughly 187 seconds later;
+    # wait for that measured lifecycle boundary before sending the swipe.
+    if not wait_log_marker(LogFollower(lldb_log),
+                           '"label": "SB_ADFL_ENTRY_RETURN"', deadline):
+        stop_runner(stop_file, "home-entity-ready-but-adfl-call-not-returned")
+        return 2
+    # Start the post-input CA/render observer before the swipe. The marker is
+    # consumed by the read-only present callbacks; it does not change guest
+    # state. The accepted-transition callback separately gates the deeper
+    # Update/V170 trace when that stronger signal arrives.
+    capture_marker = event_dir / "capture-after-input"
+    capture_marker.touch(exist_ok=True)
+    print("LEGACY_INPUT_CAPTURE_MARKER " + json.dumps({
+        "path": str(capture_marker),
+        "reason": "home-key-acked-and-home-entity-ready",
+    }, sort_keys=True), flush=True)
     time.sleep(8)
     # relay.py and dvm_input.c use 0..32767 normalized digitizer coordinates,
     # not framebuffer pixels. For the 1179x2556 panel, this is approximately
@@ -200,18 +250,35 @@ def main():
         accepted_path.unlink()
     except FileNotFoundError:
         pass
-    if not run_relay(args, events, uart, relay_log, "--swipe",
-                     "16371", "32563", "16371", "6411", "--backend", "recap"):
+    first_accepted_path = accepted_path.with_name(
+        accepted_path.stem + ".first" + accepted_path.suffix)
+    try:
+        first_accepted_path.unlink()
+    except FileNotFoundError:
+        pass
+    swipe_relay_completed = run_relay(
+        args, events, uart, relay_log, "--swipe",
+        "16371", "32563", "16371", "6411", "--backend",
+        args.swipe_backend)
+    fallback_release_acknowledged = None
+    if not swipe_relay_completed:
         # Recap queues the path until lift. If a point is rejected, submit one
         # matching Recap lift to avoid leaving a half-open synthetic touch.
-        if not run_relay(args, events, uart, relay_log, "--release",
-                         "16371", "6411", "--backend", "recap"):
+        fallback_release_acknowledged = run_relay(
+            args, events, uart, relay_log, "--release",
+            "16371", "6411", "--backend", args.swipe_backend)
+        if not fallback_release_acknowledged:
+            stop_runner(stop_file, "input-swipe-and-release-ack-failed")
             return 3
 
-    if not wait_file(accepted_path, min(deadline, time.monotonic() + 60),
+    if not wait_file(accepted_path,
+                     min(deadline, time.monotonic() +
+                         args.accepted_transition_timeout),
                      "accepted user lock dismissal"):
         print("LEGACY_INPUT_RESULT " + json.dumps({
-            "home_key_acked": True, "swipe_acked": True,
+            "home_key_acked": True,
+            "swipe_relay_completed": swipe_relay_completed,
+            "fallback_release_acknowledged": fallback_release_acknowledged,
             "accepted_transition": False,
             "read_only_ui_diagnostics": True,
         }, sort_keys=True), flush=True)
@@ -229,6 +296,13 @@ def main():
         stop_runner(stop_file, "input-transition-was-not-user-gesture")
         return 4
 
+    # Send a normal Home button event only after SpringBoard has recorded the
+    # accepted user-gesture dismissal. This distinguishes leaving the lock
+    # surface from requesting the Home UI while still locked.
+    home_after_accepted = run_relay(args, events, uart, relay_log, "--home")
+    if not home_after_accepted:
+        print("LEGACY_INPUT_HOME_AFTER_ACCEPTED_FAILED", flush=True)
+
     started = time.monotonic()
     while time.monotonic() - started < args.post_transition_secs:
         time.sleep(min(1.0, args.post_transition_secs -
@@ -239,8 +313,11 @@ def main():
                 "accepted-lock-dismissal-plus-%.0fs-post-transition-render-observation" %
                 args.post_transition_secs)
     print("LEGACY_INPUT_RESULT " + json.dumps({
-        "home_key_acked": True, "swipe_acked": True,
+        "home_key_acked": True,
+        "swipe_relay_completed": swipe_relay_completed,
+        "fallback_release_acknowledged": fallback_release_acknowledged,
         "accepted_transition": accepted,
+        "home_after_accepted_acked": home_after_accepted,
         "post_transition_observe_s": args.post_transition_secs,
         "stop_file": str(stop_file),
     }, sort_keys=True), flush=True)

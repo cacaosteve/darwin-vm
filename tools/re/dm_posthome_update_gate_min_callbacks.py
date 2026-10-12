@@ -16,6 +16,7 @@ import lldb
 
 import bks_checkin_callbacks as bks
 import dm_post_shell_home_min_callbacks as home
+from capture_marker_gate import accepted_transition_marker
 
 
 SITES = (
@@ -120,16 +121,8 @@ def on_hit(frame, bp_loc, _context):
             return False
         transition = None
         if AFTER_LOCK_TRANSITION:
-            if not str(TRANSITION_MARKER) or not TRANSITION_MARKER.is_file():
-                return False
-            try:
-                transition = json.loads(TRANSITION_MARKER.read_text())
-            except (OSError, json.JSONDecodeError):
-                return False
-            if (transition.get("for_user_gesture") != 1 or
-                    transition.get("gesture_sequence_confirmed") is False or
-                    (isinstance(transition.get("dismissal_gesture"), dict) and
-                     transition["dismissal_gesture"].get("confirmed") is False)):
+            transition = accepted_transition_marker(TRANSITION_MARKER)
+            if transition is None:
                 return False
 
         count = COUNTS.get(label, 0) + 1

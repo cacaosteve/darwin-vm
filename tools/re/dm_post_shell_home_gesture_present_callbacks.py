@@ -34,7 +34,13 @@ def install(debugger, slide):
         "DVM_PROBE_EVENT_DIR", "/tmp/dvm/post-shell-home-gesture-present"))
     event_dir.mkdir(parents=True, exist_ok=True)
     start_file = event_dir / "capture-after-input"
+    # Present telemetry may begin after Home/input, but allocation snapshots
+    # and swap-surface reads are held until the gesture probe writes its
+    # positive for_user_gesture transition marker.
+    surface_start_file = event_dir / "accepted-lockscreen-gesture-transition.json"
     os.environ["DVM_POSTHOME_PRESENT_START_FILE"] = str(start_file)
+    os.environ["DVM_POSTHOME_PRESENT_SURFACE_START_FILE"] = str(
+        surface_start_file)
     present = _import(debugger, "dm_posthome_present_callbacks",
                       HERE / "dm_posthome_present_callbacks.py")
     gesture = _import(debugger, "dm_lock_gesture_callbacks",
@@ -82,6 +88,9 @@ def install(debugger, slide):
             "DVM_CA_MSG_AFTER_LOCK_TRANSITION", "0") == "1",
         "backboard_input_trace": input_trace_enabled,
         "surface_start_file": str(start_file),
+        "surface_capture_after_accepted_transition": str(surface_start_file),
+        "surface_allocation_descriptor_lineage_trace": os.environ.get(
+            "DVM_POSTHOME_SURFACE_LINEAGE_TRACE", "0") == "1",
         "lock_transition_marker": os.environ.get(
             "DVM_LOCK_GESTURE_TRANSITION_MARKER"),
         "backboard_input_hooks": input_trace_enabled,

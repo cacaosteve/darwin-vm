@@ -45,6 +45,11 @@ static Obj touch_properties, display_uuid;
 static void *(*instance_variable)(Obj, const char *);
 static Obj (*get_ivar)(Obj, void *);
 
+static void initialization_stage(const char *stage, const char *subject) {
+    fprintf(stderr, "DVM_INPUT_STAGE stage=%s subject=%s\n", stage,
+            subject ? subject : "-");
+}
+
 static Obj msg0(Obj object, const char *name) {
     return ((Obj (*)(Obj, Sel))send_message)(object, selector(name));
 }
@@ -55,7 +60,17 @@ static Obj event_service(Obj service) {
     return msg0(service, "eventService");
 }
 static bool service_ready(Obj service) {
-    return service && msg0(event_service(service), "serviceClient");
+    Obj event = NULL;
+    Obj client = NULL;
+    initialization_stage("eventService.begin", "input-service");
+    if (service) event = event_service(service);
+    initialization_stage(event ? "eventService.return-nonnull" :
+                         "eventService.return-null", "input-service");
+    initialization_stage("serviceClient.begin", "event-service");
+    if (event) client = msg0(event, "serviceClient");
+    initialization_stage(client ? "serviceClient.return-nonnull" :
+                         "serviceClient.return-null", "event-service");
+    return client != NULL;
 }
 static bool post_event(Obj service, Obj event) {
     /* HIDVirtualEventService dispatchEvent: returns BOOL. Recap's wrapper
@@ -67,16 +82,21 @@ static bool post_event(Obj service, Obj event) {
         event_service(service), selector("dispatchEvent:"), event);
 }
 static void *symbol(void *handle, const char *name) {
+    initialization_stage("dlsym.begin", name);
     void *result = dlsym(handle, name);
     if (!result) { fprintf(stderr, "DVM_INPUT_ERROR symbol=%s\n", name); exit(1); }
+    initialization_stage("dlsym.return", name);
     return result;
 }
 static void *framework(const char *path) {
+    initialization_stage("dlopen.begin", path);
     void *handle = dlopen(path, RTLD_NOW | RTLD_GLOBAL);
     if (!handle) { fprintf(stderr, "DVM_INPUT_ERROR dlopen=%s error=%s\n", path, dlerror()); exit(1); }
+    initialization_stage("dlopen.return", path);
     return handle;
 }
 static void initialize(void) {
+    initialization_stage("initialize.begin", "native-frameworks");
     void *objc = framework("/usr/lib/libobjc.A.dylib");
     framework("/System/Library/Frameworks/Foundation.framework/Foundation");
     void *cf = framework("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation");
@@ -97,21 +117,56 @@ static void initialize(void) {
     set_integer = symbol(iokit, "IOHIDEventSetIntegerValue");
     append_event = symbol(iokit, "IOHIDEventAppendEvent");
     Obj uuid = *(Obj *)symbol(bks, "BKSDisplayUUIDMainKey");
+    initialization_stage(uuid ? "display-uuid.nonnull" : "display-uuid.null",
+                         "BKSDisplayUUIDMainKey");
     Obj properties_class = class_named("RCPEventSenderProperties");
     Obj pool_class = class_named("RCPEventDeliveryServicePool");
+    initialization_stage(properties_class ? "class.nonnull" : "class.null",
+                         "RCPEventSenderProperties");
+    initialization_stage(pool_class ? "class.nonnull" : "class.null",
+                         "RCPEventDeliveryServicePool");
     if (!uuid || !properties_class || !pool_class) {
         fprintf(stderr, "DVM_INPUT_ERROR missing-native-class-or-display\n"); exit(1);
     }
-    service_pool = msg0(msg0(pool_class, "alloc"), "init");
+    initialization_stage("service-pool.alloc.begin", "RCPEventDeliveryServicePool");
+    Obj pool_alloc = msg0(pool_class, "alloc");
+    initialization_stage(pool_alloc ? "service-pool.alloc.nonnull" :
+                         "service-pool.alloc.null", "RCPEventDeliveryServicePool");
+    initialization_stage("service-pool.init.begin", "RCPEventDeliveryServicePool");
+    service_pool = pool_alloc ? msg0(pool_alloc, "init") : NULL;
+    initialization_stage(service_pool ? "service-pool.init.nonnull" :
+                         "service-pool.init.null", "RCPEventDeliveryServicePool");
+    initialization_stage("touch-properties.begin", "touchScreenDigitizerSenderForDisplayUUID:");
     Obj properties = msg1(properties_class, "touchScreenDigitizerSenderForDisplayUUID:", uuid);
+    initialization_stage(properties ? "touch-properties.nonnull" :
+                         "touch-properties.null", "touchScreenDigitizerSenderForDisplayUUID:");
+    initialization_stage("touch-properties.retain.begin", "RCPEventSenderProperties");
     display_uuid = uuid;
     touch_properties = msg0(properties, "retain");
+    initialization_stage(touch_properties ? "touch-properties.retain.nonnull" :
+                         "touch-properties.retain.null", "RCPEventSenderProperties");
+    initialization_stage("touch-service.begin", "deliveryServiceForSenderProperties:");
     touch_service = msg0(msg1(service_pool, "deliveryServiceForSenderProperties:", properties), "retain");
+    initialization_stage(touch_service ? "touch-service.nonnull" :
+                         "touch-service.null", "deliveryServiceForSenderProperties:");
+    initialization_stage("button-properties.begin", "phoneButtonSender");
+    Obj button_properties = msg0(properties_class, "phoneButtonSender");
+    initialization_stage(button_properties ? "button-properties.nonnull" :
+                         "button-properties.null", "phoneButtonSender");
+    initialization_stage("button-service.begin", "deliveryServiceForSenderProperties:");
     button_service = msg0(msg1(service_pool, "deliveryServiceForSenderProperties:",
-                              msg0(properties_class, "phoneButtonSender")), "retain");
-    if (!service_ready(touch_service) || !service_ready(button_service)) {
+                              button_properties), "retain");
+    initialization_stage(button_service ? "button-service.nonnull" :
+                         "button-service.null", "deliveryServiceForSenderProperties:");
+    bool touch_ready = service_ready(touch_service);
+    initialization_stage(touch_ready ? "touch-service.ready" :
+                         "touch-service.not-ready", "native-registration");
+    bool button_ready = service_ready(button_service);
+    initialization_stage(button_ready ? "button-service.ready" :
+                         "button-service.not-ready", "native-registration");
+    if (!touch_ready || !button_ready) {
         fprintf(stderr, "DVM_INPUT_ERROR native-service-registration touch=%d buttons=%d\n",
-                service_ready(touch_service), service_ready(button_service)); exit(1);
+                touch_ready, button_ready); exit(1);
     }
     fprintf(stderr, "DVM_INPUT_READY protocol=1 touch=%p buttons=%p\n", touch_service, button_service);
 }
@@ -174,17 +229,36 @@ static bool post_home(const struct packet *packet) {
 struct point { double x, y; };
 static Obj recap_stream;
 static unsigned recap_points;
-static bool play_recap(Obj stream) {
+static void recap_stage(uint64_t sequence, const char *stage,
+                        double value0, double value1, const void *object) {
+    fprintf(stderr,
+            "DVM_INPUT_RECAP sequence=%" PRIu64 " stage=%s value0=%.9g value1=%.9g object=%p\n",
+            sequence, stage, value0, value1, object);
+}
+
+static bool play_recap(Obj stream, uint64_t sequence) {
+    recap_stage(sequence, "finalize.begin", 0, 0, stream);
     msg0(stream, "_finalizeProcessingEventBuffer");
     void *ivar = instance_variable(class_named("RCPSyntheticEventStream"), "_processingEventBuffer");
-    if (!ivar) return false;
-    msg1(stream, "setEvents:", get_ivar(stream, ivar));
+    if (!ivar) {
+        recap_stage(sequence, "processing-buffer.ivar-missing", 0, 0, stream);
+        return false;
+    }
+    Obj events = get_ivar(stream, ivar);
+    recap_stage(sequence, events ? "processing-buffer.nonnull" :
+                "processing-buffer.null", 0, 0, events);
+    msg1(stream, "setEvents:", events);
     Obj options = msg0(msg0(class_named("RCPPlayerPlaybackOptions"), "alloc"), "init");
-    if (!options) return false;
+    if (!options) {
+        recap_stage(sequence, "playback-options.null", 0, 0, stream);
+        return false;
+    }
     msg1(options, "setDisplayUUIDOverride:", display_uuid);
+    recap_stage(sequence, "playback-submit.begin", 0, 0, options);
     ((void (*)(Obj, Sel, Obj, Obj, Obj))send_message)(class_named("RCPInlinePlayer"),
         selector("playEventStream:options:completion:"), stream, options, NULL);
     msg0(options, "release");
+    recap_stage(sequence, "playback-submit.returned-void", 0, 0, stream);
     return true; /* queued, not proof of delivery or a completed UI action */
 }
 static bool post_tap(const struct packet *p) {
@@ -203,7 +277,7 @@ static bool post_tap(const struct packet *p) {
         struct point point = {p->x * size.x / 32767., p->y * size.y / 32767.};
         ((void (*)(Obj, Sel, uintptr_t, struct point, uintptr_t))send_message)(
             stream, selector("taps:location:withNumberOfTouches:"), 1, point, 1);
-        ok = play_recap(stream);
+        ok = play_recap(stream, p->sequence);
     }
     msg0(stream, "release");
     return ok;
@@ -211,28 +285,48 @@ static bool post_tap(const struct packet *p) {
 static bool post_recap(const struct packet *p) {
     Obj cls = class_named("RCPSyntheticEventStream");
     if (!recap_stream) {
-        if (!p->down) return true;
+        if (!p->down) {
+            recap_stage(p->sequence, "release-without-stream", 0, 0, NULL);
+            return true;
+        }
         recap_stream = msg0(msg0(cls, "alloc"), "init");
-        if (!recap_stream) return false;
+        if (!recap_stream) {
+            recap_stage(p->sequence, "stream-init.null", 0, 0, NULL);
+            return false;
+        }
+        recap_stage(p->sequence, "stream-init.nonnull", 0, 0, recap_stream);
         msg1(recap_stream, "setSenderProperties:", touch_properties);
         recap_points = 0;
     }
     struct point size = ((struct point (*)(Obj, Sel))send_message)(
         recap_stream, selector("screenSize"));
-    if (!(size.x > 0 && size.x <= 16384 && size.y > 0 && size.y <= 16384)) return false;
+    if (!(size.x > 0 && size.x <= 16384 && size.y > 0 && size.y <= 16384)) {
+        recap_stage(p->sequence, "screen-size.invalid", size.x, size.y,
+                    recap_stream);
+        /* Do not retain a partial stream after a rejected point/release. */
+        msg0(recap_stream, "release");
+        recap_stream = NULL;
+        recap_points = 0;
+        return false;
+    }
+    recap_stage(p->sequence, "screen-size.valid", size.x, size.y,
+                recap_stream);
     struct point point = {p->x * size.x / 32767., p->y * size.y / 32767.};
     if (!recap_points) {
+        recap_stage(p->sequence, "touch-down", point.x, point.y, recap_stream);
         ((void (*)(Obj, Sel, struct point))send_message)(recap_stream,
             selector("touchDown:"), point);
     } else if (p->down && recap_points < 512) {
+        recap_stage(p->sequence, "move", point.x, point.y, recap_stream);
         ((void (*)(Obj, Sel, struct point, double))send_message)(recap_stream,
             selector("moveToPoint:duration:"), point, .02);
     }
     recap_points++;
     if (p->down) return true;
+    recap_stage(p->sequence, "lift-up", point.x, point.y, recap_stream);
     ((void (*)(Obj, Sel, struct point))send_message)(recap_stream,
         selector("liftUp:"), point);
-    bool ok = play_recap(recap_stream);
+    bool ok = play_recap(recap_stream, p->sequence);
     msg0(recap_stream, "release");
     recap_stream = NULL;
     return ok;

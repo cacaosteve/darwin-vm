@@ -790,3 +790,401 @@ valid input/state-transition result, not a visible Home or passcode-unlock
 result. The accepted-transition JSON, complete relay log, and final frame
 are in
 `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN227_POSTHOME_MODETRACE1/`.
+
+#### P253 — shell/check-in clears and Home control state appears; legacy unlock input is incomplete
+
+P253 recorded migration check-in, BKS check-in, and shell-service returns with
+`x0=0` at `1791779620.854`, `1791779620.864`, and `1791779620.867`. SpringBoard
+then returned a non-null Home entity at `1791779857.602`, ADFL returned
+non-null at `1791779897.421`, and the workspace transition returned success
+(`x0=1`) at `1791780125.472`. This is measured shell-to-Home control state;
+it is not a visible Home-frame result.
+
+P253's pre-swipe lock transition had `x3=0`. The subsequent legacy recap swipe
+never completed its relay touch-up, and the fallback release timed out. No
+accepted dismissal is scored. The HMP frame was uniformly black. This run
+therefore leaves unlock input coverage open rather than demonstrating gesture
+rejection or visible unlock. The durable record is
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN253_REPLAY2B_SURFACE_LINEAGE1/`.
+
+#### P256 — Home exists; debug loss interrupted the swipe before acceptance
+
+P256 reached `SHELL_SERVICE_RETURN`, then SpringBoard produced a non-null Home
+entity at guest time `1791781106.35857`. The Home-entity screendump and
+periodic HMP samples stayed uniformly black. The trigger began an upward
+swipe; the helper status at the debug stop had 30 dispatched records and 203
+ACKs with no dispatch failures, but the contact was still down, one record
+was in flight, and 14 were wire-pending. The saved SpringBoard gesture log
+contains no accepted `shouldBegin`, Cover Sheet began/ended sequence, or
+`LOCKSCREEN_GESTURE_TRANSITION`. LLDB lost its guest connection while QEMU was
+paused; the run was then stopped to avoid carrying a stuck virtual touch into
+another experiment. This is incomplete input coverage, not evidence that
+SpringBoard rejected a complete swipe. No passcode or text was sent.
+
+The durable bundle is
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN256_P134_DVMI2_UNLOCK_SURFACE1/`;
+the paused child copy and its before/after hash are retained under
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/`.
+
+#### P258 — shell and Home control state; QMP swipes did not dismiss the lock screen
+
+P258 used a fresh child of the P134 gesture-state parent with the merged input
+trust cache. `SHELL_SERVICE_RETURN` was recorded at `1791782142.888`. The Home
+key was acknowledged, but the trigger's configured 10-second wait did not yet
+see a Home entity; it was explicitly allowed to test a swipe anyway. The
+frame sampler later recorded the non-null Home entity at `1791782375.359`.
+Thus the first swipe preceded that entity. The later follow-up swipe occurred
+after the entity marker.
+
+The first QMP swipe sent/ACKed eight transport records, dispatched six, and
+coalesced 27; it is not a full gesture sample. The later bottom-edge QMP swipe
+`(589,2540)→(589,500)` used per-step HID dispatch: 37/37 records were
+acknowledged, 33 operations dispatched, with zero dispatch failure or
+coalescing. SpringBoard saw the `SBCoverSheetScreenEdgePanGestureRecognizer`
+touches, but its recognizer entered Failed state (`x2=5`); there was no
+`shouldBegin` result, screen-edge-grabber-zone event, Cover Sheet dismissal
+begin/end, or accepted user-transition marker. HMP stayed uniformly black
+(`d312521c…42b9`). This is a delivered but unaccepted later swipe on this
+P134 child; it does not contradict P250's accepted Recap-protocol swipe on a
+replay2b child. P258's parent had no legacy `DVM_INPUT_READY protocol=1`, so
+the attempted DVMINPUT1 relay was a protocol/setup miss and is not gesture
+evidence.
+
+The next controlled attempt should use the replay2b parent and the guarded
+legacy trigger, which waits for Home entity and ADFL return before sending the
+same Recap swipe; arm the staged present callbacks in that run. The durable
+child SHA-256 is
+`773bdfe94ef3e43645b96ee3d86dfe274d96120b9e8ae40adebe62587510ca30`; its
+`qemu-img check` passed. Logs, input status, trigger result, frames, and
+backing-chain record are under
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN258_P134_STAGED_GESTURE_PRESENT1/`.
+No passcode or text was sent.
+
+#### P261 — shell/Home lifecycle works; Recap touch submission timed out
+
+P261 used the same durable replay2b parent as P250, the merged input trust
+cache, protocol-1 input service, and staged SpringBoard/UI probes. On this
+boot, `DM_PERFORM_RETURN` (`x0=0`) was followed by BKS migration/check-in
+returns and `SHELL_SERVICE_RETURN` (`x0=0`) at guest time `1791785700.043`.
+The Home key's down and up were both ACKed. SpringBoard created a non-null
+`SB_HOME_ENTITY_READY` at `1791785804.295`, and its measured ADFL call returned
+at `1791785822.660`. The HMP frame at shell return was uniformly black
+(`d312521c…42b9`); this proves lifecycle progress, not visible pixels.
+
+The first Recap swipe packet (DVMINPUT1 kind `R`, down at `(16371,32563)`,
+sequence `1791785855747`) did not receive an ACK within 60 seconds. The
+matching lift/release (sequence `1791785915857`) also timed out. SpringBoard
+later emitted a lock-manager transition with `for_user_gesture=1`, but
+`gesture_sequence_confirmed=false`, reason
+`no-recent-accepted-cover-sheet-pan-sequence`; there was no accepted dismissal.
+This is input submission failure before gesture classification, not evidence
+that the lock-screen recognizer rejected a complete swipe. The trigger's
+readiness marker match was fixed to include
+`POST_SHELL_HOME_GESTURE_STAGED_READY`.
+
+The run was frozen after the bounded release ACK failed. The durable child
+passed `qemu-img check -U` and has SHA-256
+`5b20966d25626588c6bd4ca8313f50c0fc99e3a1cbbb723c0d67096aceb2f293`; records
+are in
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN261_REPLAY2B_LEGACY_STAGED_PRESENT1/`.
+P250 remains the accepted Recap-swipe control. P262 changes only the swipe
+backend to direct touch while retaining the replay2b lineage and the same
+Home/ADFL gates. No passcode or text was sent.
+
+#### P262 — direct-touch gesture reached SpringBoard; classifier window was too short
+
+P262 is a fresh replay2b child using the same TC, launch arguments, and shell
+→ Home/ADFL gates as P261; only the swipe backend changed to direct touch. The
+shell/check-in ladder returned successfully, Home down/up were ACKed, and
+SpringBoard created its Home entity and returned from ADFL. As in P261, HMP
+captures at shell return, Home-entity return, and 120 seconds after shell
+return were uniformly black (`d312521c…42b9`).
+
+All 11 direct-touch swipe records, including the lift, were ACKed. SpringBoard
+then logged a `SBCoverSheetScreenEdgePanGestureRecognizer` with
+`HOME_GESTURE_PAN_SHOULD_BEGIN_RETURN x0=1`, the same recognizer entering
+`COVERSHEET_DISMISS_GESTURE_BEGAN`, and `HOME_GESTURE_PAN_TOUCHES_ENDED`. The
+lock-manager transition followed with `for_user_gesture=1`. The initial
+classifier marked the sequence unconfirmed because its should-begin/began to
+transition limit was 60 seconds; on this TCG/LLDB run, the matching events
+were 79.97/79.92 seconds before transition, while the matching pan end was
+only 1.61 seconds before it. Offline replay with the widened 180-second
+same-process/TPIDR and recognizer-identity correlation confirms the event
+sequence. This is a probe-window correction based on the captured identities
+and ordering, not evidence of rendered pixels.
+
+The trigger had already stopped P262 on the old false-negative marker, before
+its post-dismissal Home event and render capture. Therefore P262 establishes
+that direct touch reaches an accepted should-begin and Cover Sheet dismissal
+gesture path, but it does not establish the resulting Home/lock surface or
+visible unlock. The durable child passed `qemu-img check -U`; SHA-256 is
+`760b066cb23d72a2f73354ac36622c851232f4508e1332c29c043e8286250939`. Event,
+frame, serial, LLDB, runner, and input-relay records are under
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN262_REPLAY2B_LEGACY_DIRECT_STAGED_PRESENT1/`.
+P263 repeats this same direct-touch path with the corrected correlation window
+and keeps observation running through the post-transition capture. No
+passcode or text was sent.
+
+#### P264 transport check — legacy guest helper and DVMI2 host traffic
+
+P264's boot started the guest `dvm-input` v6 service, which advertises
+`DVM_INPUT_READY protocol=1` and parses `DVMINPUT1` records. With
+`DARWIN_INPUT_UART=1`, the QEMU side instead emitted DVMI2 `P` ping records;
+the guest wrote `DVM_INPUT_REJECT malformed-or-old` once for each ping (47
+rejects and 47 host pings at the sampled point). The legacy trigger had not
+sent a Home or gesture yet, so those rejects are transport-version evidence,
+not failed user input. They also explain why QEMU's input-status counters
+never reached an acknowledged/ready state in this boot.
+
+The render runner now has an opt-in `LEGACY_UART_ONLY=1` mode, valid only with
+`INPUT_TRIGGER_MODE=legacy`. It keeps the serial socket for the direct
+`DVMINPUT1` relay but sets `DARWIN_INPUT_UART=0`, preventing the QEMU-side
+DVMI2 producer from injecting incompatible traffic into that same guest UART.
+This is a measured protocol correction in the launch path, not yet
+boot-validated; use it on a fresh child and require actual `DVM_INPUT_ACK`
+records plus SpringBoard recognizer evidence before scoring a gesture. It does
+not change framebuffer, firmware, DCP responses, mode, or pixels.
+
+P264 continued this check on a fresh replay2b child, but did not validate the
+new launch mode or a user gesture. The run used `LEGACY_UART_ONLY=0` and
+`DARWIN_INPUT_UART=1`; its automated trigger exited before the first relay
+because it passed `--ack-timeout 180` to the then-installed relay, whose
+accepted maximum was 120 seconds. The guest helper advertised
+`DVM_INPUT_READY protocol=1`, while QEMU's DVMI2 pings were rejected by the
+legacy parser. A separate manual Recap relay wrote to the same UART during the
+run, so those touch ACKs cannot be attributed to one serialized gesture. No
+accepted lock-dismissal marker was produced. P264's input result is therefore
+unscored; ACKs alone would only show helper submission.
+
+The runner now preserves artifacts after a nonzero probe exit. Legacy trigger
+mode now defaults `LEGACY_UART_ONLY=1`, which disables the DVMI2 producer while
+retaining the UART for the legacy relay; an explicit override remains
+possible. The trigger also validates the relay's current 300-second ACK limit
+before running. The isolated P269 boot is validating this launch path with one
+automated input writer and a 120-second per-packet ACK deadline.
+
+#### P263 — direct-touch packets ACK, but SpringBoard fails the Cover Sheet pans
+
+P263 used a fresh child of the same durable replay2b parent, the merged input
+trust cache, the same shell/Home/ADFL gates, and direct touch with the updated
+gesture correlator. `DM_PERFORM_RETURN`, BKS migration/check-in returns, and
+`SHELL_SERVICE_RETURN` all completed with `x0=0` on the recorded success sites.
+The Home key was ACKed; SpringBoard created the Home entity and returned from
+ADFL. The shell-return and Home-entity HMP frames were uniformly black
+(`d312521c…42b9`).
+
+All 11 direct-touch points, including the final lift, were ACKed. In contrast
+to P262, SpringBoard moved the `SBCoverSheetScreenEdgePanGestureRecognizer`
+and `SBFluidSwitcherScreenEdgePanGestureRecognizer` to Failed (`x2=5`) almost
+immediately after touches began. No Cover Sheet/Home `shouldBegin` return,
+dismissal `Began`, or user-gesture lock transition followed. The trigger waited
+the configured 180-second acceptance window and stopped without issuing the
+post-dismissal Home event. This is a fully delivered but rejected recognizer
+path; it is not a transport miss. It also does not negate P262's accepted
+same-lineage pan, and it provides no post-dismissal pixel result.
+
+The durable replay2b child passed `qemu-img check -U`; SHA-256 is
+`2f03ae484763aa00111a11832ae2521701242bbe0af9ac27f427f86310fd17bd`. Its
+event, frame, serial, LLDB, runner, and relay records are under
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN263_REPLAY2B_LEGACY_DIRECT_STAGED_PRESENT2/`.
+P264 should retain the 180-second same-gesture correlator and compare the
+known-positive Recap input protocol with an extended relay ACK window. No
+passcode or text was sent.
+
+#### P269 — Home lifecycle is positive; the trigger never reached input
+
+P269 used the durable replay2b parent and legacy UART-only transport. The
+same boot completed the DataMigrator/BKS shell ladder, created a nonnull
+SpringBoard Home entity, and returned from ADFL. Its post-shell module emitted
+`POST_SHELL_HOME_RENDER_READY`, but it did not install the lock-gesture
+correlator or emit any of the three readiness markers accepted by
+`trigger_home_unlock_legacy.py`. The host trigger log remained empty and no
+accepted user-gesture transition marker was created. One SpringBoard UIEvent
+and HID callback appears in the log, but it has no relay transaction or
+accepted-pan correlation and is not attributed to the trigger.
+
+The shell-to-Home/lock lifecycle evidence and uniformly black sampled frame
+remain valid; unlock/input is unscored. The runner now defaults to
+`dm_post_shell_home_gesture_present_callbacks`, turns on its BackBoard input
+trace, and rejects a legacy-trigger profile whose selected module is not one
+of the gesture-ready compositions. The legacy trigger also logs its awaited
+observer marker before waiting. P269's child is durably preserved at
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/ui-class16-refresh60-dm-plugin269-replay2b-legacy-uart-only-ack120-home-unlock1.qcow2`
+(SHA-256
+`c4d8f95c49631d71f80a5eaf76253e1832986f393faaf0636457b0531e9d833b`); its
+complete event/frame and runner records are under
+`recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN269_REPLAY2B_LEGACY_UART_ONLY_ACK120_HOME_UNLOCK1/`.
+No second gesture was injected into that child. No passcode was sent.
+
+
+#### P273 — accepted Recap pan does not establish an unlocked screen
+
+P273 used the legacy UART-only helper on a fresh replay2b child. All 34 Recap
+swipe records were ACKed; the same Cover Sheet pan recognizer returned
+`shouldBegin=true`, began and ended, and the correlated SpringBoard transition
+reported `x3=1` / `forUserGesture=1`. This closes the input-acceptance edge for
+that gesture. It does not show that the lock layer was removed: the later
+readable full-size IOSurface contained only sparse status/lock chrome on black,
+and the HMP framebuffer remained black through the 600-second observation.
+The separate `x3=0` callback came from another SpringBoard TPIDR and is not
+attributed to this gesture. The lock-visibility callbacks had no rows, so
+their state remains unobserved. No passcode was entered.
+
+The child, input stream, logs, and captured frame are preserved under
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN273_REPLAY2B_LEGACY_UART_ONLY_ACK120_HOME_UNLOCK1/`.
+
+#### P274 — Home is reached; Recap swipe is rejected before its first point
+
+P274 is a fresh replay2b child using the same legacy-UART-only input profile.
+The guest helper started at serial line 618 and announced
+`DVM_INPUT_READY protocol=1` at line 171574. The Home key's down and up were
+both acknowledged; SpringBoard then returned a nonnull Home entity and a
+non-null ADFL result. These markers establish the shell-to-Home lifecycle,
+not a visible Home frame.
+
+The Recap swipe's first down packet (`R`, sequence `1791794863656`, normalized
+point `(16371,32563)`) received guest ACK `0` after about 36.0 seconds. The
+separate release packet also received ACK `0` after about 206 ms. The guest
+helper's current Recap path can return false before calling `touchDown:` when
+`RCPSyntheticEventStream screenSize` is out of range; P274 used the previous
+helper without dimension-stage logging, so invalid geometry is a candidate
+cause, not a recovered P274 value. No accepted pan/dismissal is attributed to
+these packets. This is input-event construction failure, not recognizer
+rejection and not an unlock verdict.
+
+The helper now emits `DVM_INPUT_RECAP` stage records for stream setup,
+`screenSize`, point construction, processing-buffer lookup, and playback
+queueing. Invalid geometry also releases and clears a partial Recap stream so
+a later standalone release cannot reuse stale state. This version compiled to
+an arm64 iOS helper and merged with the full dev6 input trust cache, but was
+not installed or boot-tested in P274. Its first boot should compare the
+reported Recap dimensions and buffer/playback stages against a successful
+P273-style sequence. The P274 child and logs are preserved in
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/P274_LOCK_IVARS_DISPATCH1/`;
+the child SHA-256 is recorded in `child-sha256.txt`. The diagnostic helper
+build is in `recovery-records/P274_RECAP_DIAGNOSTIC_HELPER_BUILD1/`. No
+passcode or text was sent.
+
+#### P276 — measured dismissal/Home path succeeds; HMP stays black
+
+P276 is a fresh replay2b child with accepted `system.tc` and the existing
+diagnostic setup. The same run returned from `DM_PERFORM`, BKS migration and
+check-in, and the SpringBoard shell service; SpringBoard then returned a
+non-null ADFL result, created a non-null Home entity, and returned success from
+the workspace transition. The legacy-UART Recap gesture was fully ACKed. Its
+`HOME_GESTURE_PAN_SHOULD_BEGIN_RETURN` was accepted, the same recognizer began
+and ended, and BackBoard recorded
+`ACCEPTED_LOCKSCREEN_GESTURE_TRANSITION` with `for_user_gesture=1` at guest
+time `1791796340.687735`. This closes the input/accepted-dismissal control
+path; it does not prove visible Home or a completed unlock. No passcode was
+entered.
+
+All 16 HMP captures were 1179x2556 and uniformly black, including the sample
+420 seconds after the accepted gesture. Every captured frame had
+`nonblack_fraction=0` and the same SHA-256
+`d312521cf1e978b08337f0c936bdf71f2d7a61a3259dc5bd07792494c5cf42b9`. In the
+post-transition observer window, SpringBoard produced 72
+`CA_COMMIT_ENTRY` callbacks through `1791796751.388764`; the armed
+`SERVER_RENDER_UPDATE_ENTRY`, `DISPLAY_RENDER_DISPLAY_ENTRY`, surface/OGL,
+and framebuffer swap callbacks had no hits after the accepted transition.
+The CA commit-return observer was not continuous in this run: its return
+breakpoint disabled itself after its first hit. Thus the 72 entries do not
+establish 72 completed commits or identify a first incomplete commit. The
+follow-up probe retains the return observer and pairs returns to entries by
+thread, stack pointer, and saved entry LR.
+Those same render/surface/swap callback families did hit before the gesture,
+so their later silence is a bounded observation of this run, not proof that
+all possible render paths are absent. The next useful cutoff is the
+SpringBoard CA commit/transaction handoff into the render server, with the
+server-render hooks retained after an accepted dismissal. Do not send another
+gesture or a passcode to explain the black frame.
+
+The durable child is
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/ui-class16-refresh60-dm-lock-plugin276-recap-diagnostic-home1.qcow2`
+(SHA-256
+`6d82839b8dba9457e23d38d7a1d6503c25e1b408c25a1e4ec5a1dbf4d059586a`). Its
+event, frame, LLDB, serial, runner, and input records are in
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN276_RECAP_DIAGNOSTIC_HOME1/`;
+`qemu-img check -U` found no errors. The child remains a diagnostic artifact;
+no guest input protocol, DCP response, display-mode value, fixture, model,
+SpringBoard, or scanout behavior was changed.
+
+#### P277 — accepted dismissal still renders the Lock Screen
+
+P277 repeated the ordinary Home-key and Recap-swipe sequence on a fresh P276
+child. The Home key and swipe were acknowledged; the same pan recognizer
+accepted, began, and ended, and the lock manager recorded
+`for_user_gesture=1`. At that instant `_isUILocked=0` and `_uiUnlocking=1`,
+which establishes an unlock transition in progress, not completion. The
+pixel-bearing IOSurface was joined by pointer identity from set-layer `x3` to
+handoff `x2`; the saved image still shows Lock Screen status, the Chinese
+“Swipe up to open” prompt, and the Home indicator, with no Home icons. HMP
+remained uniformly black through 420 seconds after the transition. No
+passcode was sent.
+
+P277's child is
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/ui-class16-refresh60-dm-lock-plugin277-commit-pair-home1.qcow2`
+(SHA-256
+`ccde5785072f3875d7ef8a7c90678aff5e23f4c9b3874b0f2c6cc315a5628fd0`). The
+record is in
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN277_COMMIT_PAIR_HOME1/`;
+the preserved frame is `frames/iosurface-posthome-03.png`. The child passed
+`qemu-img check -U`. A follow-up should try one further ordinary swipe while
+retaining the accepted-transition and surface-to-handoff observers; do not
+submit a passcode.
+
+#### P278 — follow-up swipe ACK without a second transition
+
+P278's initial Recap swipe was confirmed by the same recognizer's accepted
+`shouldBegin`, began, and ended callbacks; BackBoard recorded a
+`for_user_gesture=1` accepted lock-dismissal transition. The Home event after
+that transition and one later ordinary follow-up swipe were ACKed. The
+follow-up produced no second accepted-transition marker in the bounded
+window. This measures input delivery only; it does not establish completed
+unlock or visible Home. `passcode_entered=false`; no passcode or text was sent.
+Input and frame records are in
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN278_TWO_SWIPE_SURFACE1/`.
+
+#### P280 — retain the first confirmed dismissal marker
+
+P280 completed the shell/Home setup and received ACKs for the Home key and a
+same-recognizer Recap pan. The pan passed `shouldBegin`, began and ended, and
+produced a gesture-confirmed `ACCEPTED_LOCKSCREEN_GESTURE_TRANSITION`; the
+trigger preserved that accepted JSON in its final result. A later
+unconfirmed lock-manager event overwrote the active marker file, so P280 also
+preserved the first confirmed event separately. The resulting source fix
+writes `.first.json` on the first confirmed transition and makes the CA
+send/receive and Update-gate probes accept either a valid active record or a
+valid retained first record. It also clears a stale `.first.json` before a
+fresh legacy swipe. The new marker helper has unit coverage, but this code was
+edited after P280's LLDB session began and is not boot-validated yet. The
+P280 gesture result is valid independently because the input trigger itself
+read and reported the confirmed marker before later overwrite. Records and
+the durable child are in
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN280_ACCEPTED_MARKER_SURFACE_SAMPLE1/`.
+
+#### P290 — one delayed follow-up swipe is delivered but not accepted as a second dismissal
+
+P290's first Recap swipe was confirmed by the same SpringBoard CoverSheet
+recognizer's `shouldBegin`, began, and ended callbacks, followed by a
+gesture-confirmed lock-manager transition (`for_user_gesture=1`). The delayed
+sidecar waited 330 seconds, captured HMP, and sent exactly one additional
+ordinary upward swipe. Every Recap relay event was ACKed. SpringBoard
+produced recognizer-state and pan callbacks during that second input, but
+the bounded 120-second follow-up window had no new confirmed lock-dismissal
+transition. The recorded outcome is
+`swipe-acked-no-second-transition-marker-in-bound`, not an authentication or
+unlock result; no passcode or text was sent.
+
+This run exposed a helper bug: after its delay, the sidecar copied the latest
+active marker over the callback's immutable `.first.json` and removed the
+active path. In P290 that latest value was an unconfirmed event, so the
+sidecar overwrote the valid first record and closed the surface-observation
+gate. The confirmed first marker was already saved separately, and the
+overwritten event was preserved as `followup-overwrote-first-marker.json`;
+the first gate was restored while the guest remained running. The source fix
+now leaves both marker files alone, records an append-only `lock-gesture.jsonl`
+cursor before the swipe, and accepts only a fresh confirmed marker appended
+after that cursor. Unit tests cover confirmed/unconfirmed markers and partial
+JSONL writes. The fix is not yet boot-validated. Artifacts are in
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN290_DELAYED_PROMPT_SWIPE1/`.

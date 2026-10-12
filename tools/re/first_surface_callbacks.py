@@ -879,7 +879,10 @@ USER_ENTRIES = [
      32, "x3", True),
     (0x1844723dc, "IOSURFACE_ID_RETURN_1", "x0 x20", 32, None, False),
     (0x184472400, "IOSURFACE_ID_RETURN_2", "x0 x20", 32, None, False),
-    (0x184472488, "FB_SWAP_HANDOFF", "x0 x1 x2 x3 x8", 32, "x2", True),
+    # Static QuartzCore disassembly identifies this as a branch to the
+    # objc_msgSend$sender stub. x2 may carry the prior surface value, but this
+    # selector boundary is not an established IOSurface argument/handoff.
+    (0x184472488, "FB_SWAP_SENDER_CALL", "x0 x1 x2 x3 x8", 32, None, False),
 ]
 
 KERNEL_ENTRIES = [

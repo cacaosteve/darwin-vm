@@ -5264,20 +5264,22 @@ def on_break(frame, bp_loc, _dict):
         ), flush=True)
     if label in ("DISPLAY_MODE_PREFERRED_MODE_GATE", "DISPLAY_MODE_SINGLE_MODE_GATE"):
         base = 0x1e7058000 + DSC_SLIDE
-        default_mode = _u64(process, base + 0xe10)
-        preferred_enabled = _u8(process, base + 0xc58)
-        # +0x600 is CADeviceIsVirtualized()::once, not a current mode;
-        # +0xbf9 is its cached is_virtualized boolean.
-        virtualized_once = _u64(process, base + 0x600)
+        supports_apt_once = _u64(process, base + 0xe10)
+        supports_apt = _u8(process, base + 0xc58)
+        # Symbols identify +0x600 as CADeviceIsVirtualized()::once and
+        # +0xbf9 as its cached is_virtualized boolean. These are policy/cache
+        # fields, not current/default display-mode storage.
+        is_virtualized_once = _u64(process, base + 0x600)
         is_virtualized = _u8(process, 0x1e7053000 + DSC_SLIDE + 0xbf9)
-        print("display_mode_fallback_gate label=%s x24=%s x8=%s default_e10=%s "
-              "preferred_c58=%s virtualized_once_600=%s is_virtualized_bf9=%s" % (
+        print("display_mode_fallback_gate label=%s x24=%s x8=%s "
+              "supports_apt_once_e10=%s supports_apt_c58=%s "
+              "is_virtualized_once_600=%s is_virtualized_bf9=%s" % (
             label,
             hex(_reg(frame, "x24")) if _reg(frame, "x24") is not None else None,
             hex(_reg(frame, "x8")) if _reg(frame, "x8") is not None else None,
-            hex(default_mode) if default_mode is not None else None,
-            preferred_enabled,
-            hex(virtualized_once) if virtualized_once is not None else None,
+            hex(supports_apt_once) if supports_apt_once is not None else None,
+            supports_apt,
+            hex(is_virtualized_once) if is_virtualized_once is not None else None,
             is_virtualized,
         ), flush=True)
     if label == "DISPLAY_MODE_SIGNAL_TYPE2_STATE":
@@ -5444,8 +5446,8 @@ def on_break(frame, bp_loc, _dict):
         x19 = _reg(frame, "x19")
         base = 0x1e7058000 + DSC_SLIDE
         print("display_mode_fallback_minus_one display=%s current2b8=%s current2c0=%s "
-              "x23=%s x24=%s x25=%s x26=%s x27=%s globals=(default:%s preferred:%s "
-              "virtualized_once:%s is_virtualized:%s)" % (
+              "x23=%s x24=%s x25=%s x26=%s x27=%s cached=(supports_apt_once_e10:%s "
+              "supports_apt_c58:%s is_virtualized_once_600:%s is_virtualized_bf9:%s)" % (
             hex(x19) if x19 else None,
             hex(_u64(process, x19 + 0x2b8)) if x19 and _u64(process, x19 + 0x2b8) is not None else None,
             hex(_u64(process, x19 + 0x2c0)) if x19 and _u64(process, x19 + 0x2c0) is not None else None,

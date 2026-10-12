@@ -4,10 +4,14 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ART="$HOME/dvm-artifacts/bp-patched-dev6/boot1"
-TAG="${1:-UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN172_P134_UPDATE_GATE_MIN1}"
+if [[ "$#" -lt 1 || -z "$1" ]]; then
+    echo "usage: $0 RUN_TAG [environment overrides]" >&2
+    exit 2
+fi
+TAG="$1"
 REC="$ART/recovery-records/$TAG"
 PARENT="${PARENT:-$ART/ui-class16-refresh60-dm-lock-plugin134-gesture-state1.qcow2}"
-CHILD="/tmp/dvm/data-seed/$(printf '%s' "$TAG" | tr 'A-Z_' 'a-z-').qcow2"
+CHILD="${CHILD:-/tmp/dvm/data-seed/$(printf '%s' "$TAG" | tr 'A-Z_' 'a-z-').qcow2}"
 TC="$HOME/dvm-artifacts/bp-patched-dev6/input-v12-native/system-plus-dev6-input.tc"
 mkdir -p "$REC" /tmp/dvm/data-seed /tmp/dvm/probe
 [[ ! -e "$CHILD" ]] || { echo "refusing to reuse child: $CHILD" >&2; exit 1; }
@@ -28,6 +32,10 @@ export DVM_POSTHOME_UPDATE_GATE_MIN_TRACE="${DVM_POSTHOME_UPDATE_GATE_MIN_TRACE:
 export DVM_POSTHOME_UPDATE_GATE_AFTER_LOCK_TRANSITION="${DVM_POSTHOME_UPDATE_GATE_AFTER_LOCK_TRANSITION:-0}"
 export DVM_CA_MSG_AFTER_LOCK_TRANSITION="${DVM_CA_MSG_AFTER_LOCK_TRANSITION:-0}"
 export HOME_ENTITY_TIMEOUT="${HOME_ENTITY_TIMEOUT:-240}"
+export HOME_TRIGGER_TIMEOUT="${HOME_TRIGGER_TIMEOUT:-3900}"
+export HOME_TRIGGER_MODE="${HOME_TRIGGER_MODE:-dvmi2}"
+export LEGACY_POST_TRANSITION_SECS="${LEGACY_POST_TRANSITION_SECS:-300}"
+export LEGACY_ACCEPTED_TRANSITION_TIMEOUT="${LEGACY_ACCEPTED_TRANSITION_TIMEOUT:-180}"
 export POST_INPUT_OBSERVE="${POST_INPUT_OBSERVE:-2500}"
 export INITIAL_SWIPE_DELAY="${INITIAL_SWIPE_DELAY:-0}"
 export SWIPE_HOLD_MS="${SWIPE_HOLD_MS:-600}"
@@ -98,26 +106,42 @@ case "$SWIPE_AFTER_HOME_TIMEOUT" in
     1) SWIPE_AFTER_HOME_TIMEOUT_ARGS+=(--swipe-after-home-timeout) ;;
     *) echo "SWIPE_AFTER_HOME_TIMEOUT must be 0 or 1" >&2; exit 2 ;;
 esac
-HOME_AFTER_ACCEPTED_TRANSITION_ARGS=()
-case "$HOME_AFTER_ACCEPTED_TRANSITION" in
-    0) ;;
-    1) HOME_AFTER_ACCEPTED_TRANSITION_ARGS+=(--home-after-accepted-transition) ;;
-    *) echo "HOME_AFTER_ACCEPTED_TRANSITION must be 0 or 1" >&2; exit 2 ;;
+case "$HOME_TRIGGER_MODE" in
+    dvmi2)
+        HOME_AFTER_ACCEPTED_TRANSITION_ARGS=()
+        case "$HOME_AFTER_ACCEPTED_TRANSITION" in
+            0) ;;
+            1) HOME_AFTER_ACCEPTED_TRANSITION_ARGS+=(--home-after-accepted-transition) ;;
+            *) echo "HOME_AFTER_ACCEPTED_TRANSITION must be 0 or 1" >&2; exit 2 ;;
+        esac
+        python3 "$REPO/tools/re/trigger_home_then_unlock_dvmi2.py" "$TAG" \
+            --timeout "$HOME_TRIGGER_TIMEOUT" \
+            --home-entity-timeout "$HOME_ENTITY_TIMEOUT" \
+            --post-input-observe "$POST_INPUT_OBSERVE" \
+            --initial-swipe-delay "$INITIAL_SWIPE_DELAY" \
+            --swipe-coords "${SWIPE_COORDS_ARRAY[@]}" \
+            --swipe-hold-ms "$SWIPE_HOLD_MS" --swipe-steps "$SWIPE_STEPS" \
+            "${SWIPE_DISPATCH_ARGS[@]}" \
+            --followup-swipe-delay "$FOLLOWUP_SWIPE_DELAY" \
+            --followup-swipe-hold-ms "$FOLLOWUP_SWIPE_HOLD_MS" \
+            --followup-swipe-steps "$FOLLOWUP_SWIPE_STEPS" --retry-observe 300 \
+            "${HOME_AFTER_ACCEPTED_TRANSITION_ARGS[@]}" \
+            "${SWIPE_AFTER_HOME_TIMEOUT_ARGS[@]}" \
+            "${SHELL_RETURN_ARGS[@]}" \
+            > "$TRIGGER_LOG" 2> "$REC/trigger-stderr.log" &
+        ;;
+    legacy)
+        python3 "$REPO/tools/re/trigger_home_unlock_legacy.py" "$TAG" \
+            --timeout "$HOME_TRIGGER_TIMEOUT" \
+            --accepted-transition-timeout "$LEGACY_ACCEPTED_TRANSITION_TIMEOUT" \
+            --post-transition-secs "$LEGACY_POST_TRANSITION_SECS" \
+            > "$REC/legacy-trigger.log" 2> "$REC/trigger-stderr.log" &
+        ;;
+    *)
+        echo "HOME_TRIGGER_MODE must be dvmi2 or legacy" >&2
+        exit 2
+        ;;
 esac
-python3 "$REPO/tools/re/trigger_home_then_unlock_dvmi2.py" "$TAG" \
-    --timeout 3900 --home-entity-timeout "$HOME_ENTITY_TIMEOUT" \
-    --post-input-observe "$POST_INPUT_OBSERVE" \
-    --initial-swipe-delay "$INITIAL_SWIPE_DELAY" \
-    --swipe-coords "${SWIPE_COORDS_ARRAY[@]}" \
-    --swipe-hold-ms "$SWIPE_HOLD_MS" --swipe-steps "$SWIPE_STEPS" \
-    "${SWIPE_DISPATCH_ARGS[@]}" \
-    --followup-swipe-delay "$FOLLOWUP_SWIPE_DELAY" \
-    --followup-swipe-hold-ms "$FOLLOWUP_SWIPE_HOLD_MS" \
-    --followup-swipe-steps "$FOLLOWUP_SWIPE_STEPS" --retry-observe 300 \
-    "${HOME_AFTER_ACCEPTED_TRANSITION_ARGS[@]}" \
-    "${SWIPE_AFTER_HOME_TIMEOUT_ARGS[@]}" \
-    "${SHELL_RETURN_ARGS[@]}" \
-    > "$TRIGGER_LOG" 2> "$REC/trigger-stderr.log" &
 TRIGGER_PID=$!
 
 set +e

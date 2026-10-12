@@ -7,7 +7,11 @@ image="$out/ramdisk-input.dmg"
 test -f "$out/dvm-input"
 test ! -e "$image"
 cp -p "$repo/firmware/ramdisk.dmg" "$image"
-mnt=$("$repo/tools/rootfs/safe_attach.sh" attach "$image" --owners on)
+# This is a disposable helper image copied from the repository, whose files
+# are root-owned. Host ownership emulation makes those paths unwritable for
+# the normal developer account; guest ownership is supplied by the restore
+# environment, so write the staged files with host ownership disabled.
+mnt=$("$repo/tools/rootfs/safe_attach.sh" attach "$image" --owners off)
 trap '"$repo/tools/rootfs/safe_attach.sh" detach "$mnt"' EXIT
 test -d "$mnt/libexec"
 cp -X "$out/dvm-input" "$mnt/libexec/dvm-input"

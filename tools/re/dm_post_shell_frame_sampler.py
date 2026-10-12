@@ -126,7 +126,11 @@ def main():
                         "CREATE_SURFACE_RETURN": "create-surface-return",
                         "ALLOCATE_IOSURFACE_RETURN": "allocate-iosurface-return",
                         "FB_SWAP_SET_LAYER_ENTRY": "fb-swap-set-layer",
-                        "FB_SWAP_HANDOFF": "fb-swap-handoff",
+                        # Keep reading historical records under their old
+                        # label while naming the current 0x184472488 PC by
+                        # its statically established `sender` selector call.
+                        "FB_SWAP_HANDOFF": "fb-swap-handoff-legacy",
+                        "FB_SWAP_SENDER_CALL": "fb-swap-sender-call",
                     }
                     if label in sample_labels and label not in posthome_seen:
                         posthome_seen.add(label)

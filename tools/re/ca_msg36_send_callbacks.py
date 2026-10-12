@@ -22,6 +22,7 @@ import os
 import time
 
 import lldb
+from capture_marker_gate import accepted_transition_marker
 
 
 # Client builder: after msgid csel, stores msgh_id at [x24+0x14].
@@ -65,17 +66,7 @@ TRANSITION_MARKER = os.environ.get("DVM_LOCK_GESTURE_TRANSITION_MARKER", "")
 def _transition_gate_open():
     if not AFTER_LOCK_TRANSITION:
         return True
-    if not TRANSITION_MARKER or not os.path.isfile(TRANSITION_MARKER):
-        return False
-    try:
-        with open(TRANSITION_MARKER) as stream:
-            marker = json.load(stream)
-    except (OSError, json.JSONDecodeError):
-        return False
-    return (marker.get("for_user_gesture") == 1 and
-            marker.get("gesture_sequence_confirmed") is not False and
-            not (isinstance(marker.get("dismissal_gesture"), dict) and
-                 marker["dismissal_gesture"].get("confirmed") is False))
+    return accepted_transition_marker(TRANSITION_MARKER) is not None
 
 
 def _reg(frame, name):

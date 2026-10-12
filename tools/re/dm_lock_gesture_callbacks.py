@@ -13,6 +13,7 @@ from pathlib import Path
 import lldb
 
 import bks_checkin_callbacks as bks
+import objc_metadata
 import render_gate_callbacks as render
 
 
@@ -66,6 +67,13 @@ SCREEN_EDGE_RECOGNIZERS = {
     "SBCoverSheetScreenEdgePanGestureRecognizer",
     "SBHomeGesturePanGestureRecognizer",
 }
+# Under TCG with per-event LLDB callbacks, a single synthetic swipe can take
+# substantially longer than wall-clock gesture duration. P262 measured about
+# 80 guest seconds from shouldBegin/Began to the lock-manager transition, while
+# pan end remained within 2 seconds. Keep strict process, TPIDR, recognizer,
+# ordering, and pan-end checks; widen only the same-gesture age bound so slow
+# callback delivery is not mis-scored.
+DISMISSAL_EVENT_TRANSITION_MAX_AGE_S = 180.0
 TRANSITION_MARKER = None
 EVENT_OUT = None
 
@@ -174,14 +182,20 @@ def _confirmed_dismissal_sequence(marker):
                   event.get("tpidr_el1") == transition_tpidr]
     began = [event for event in candidates
              if event["label"] == "COVERSHEET_DISMISS_GESTURE_BEGAN" and
-             0 <= transition_time - float(event.get("time", 0)) <= 60]
+             0 <= transition_time - float(event.get("time", 0)) <=
+             DISMISSAL_EVENT_TRANSITION_MAX_AGE_S]
     accepted = [event for event in candidates
                 if event["label"] == "HOME_GESTURE_PAN_SHOULD_BEGIN_RETURN" and
                 event.get("accepted") and
-                0 <= transition_time - float(event.get("time", 0)) <= 60]
+                0 <= transition_time - float(event.get("time", 0)) <=
+                DISMISSAL_EVENT_TRANSITION_MAX_AGE_S]
     ended = [event for event in candidates
              if event["label"] == "HOME_GESTURE_PAN_TOUCHES_ENDED" and
-             0 <= transition_time - float(event.get("time", 0)) <= 15]
+             # The lock-manager transition can be emitted after the pan
+             # callbacks settle; P244 measured a same-recognizer accepted
+             # pan-end 17 seconds before the transition marker. Keep the
+             # identity and ordering checks below while covering that delay.
+             0 <= transition_time - float(event.get("time", 0)) <= 30]
     for pan_end in reversed(ended):
         for pan_began in reversed(began):
             if pan_began.get("recognizer") != pan_end.get("recognizer"):
@@ -210,6 +224,87 @@ def _class_name(process, value):
     if not isinstance(value, int) or value <= 0x10000:
         return None
     return render._objc_class_name(process, value)
+
+
+def _u32(process, address):
+    data = bks._read(process, address, 4)
+    return int.from_bytes(data, "little") if len(data) == 4 else None
+
+
+def _objc_instance_ivar_snapshot(process, instance, max_ivars=128):
+    """Read a bounded live ObjC ivar inventory for transition-state analysis.
+
+    The runtime class metadata, rather than guessed offsets, supplies ivar
+    names and offsets. Raw bytes are evidence only: no field is assigned
+    lock/unlock semantics from its name or value alone.
+    """
+    mask = 0x0000FFFFFFFFFFF8
+    try:
+        isa = bks._u64(process, instance)
+        cls = (isa & mask) if isa else 0
+        data_bits = bks._u64(process, cls + 0x20) if cls else None
+        data = (data_bits & mask) if data_bits else 0
+        flags = _u32(process, data) if data else None
+        ro_ptr = (bks._u64(process, data + 8) & mask
+                  if flags is not None and flags & 0x80000000 else data)
+        name_ptr = bks._u64(process, ro_ptr + 0x18) if ro_ptr else None
+        class_name = bks._cstring(process, name_ptr, 128) if name_ptr else None
+        instance_start = _u32(process, ro_ptr + 4) if ro_ptr else None
+        instance_size = _u32(process, ro_ptr + 8) if ro_ptr else None
+        ivar_list = bks._u64(process, ro_ptr + 0x30) if ro_ptr else None
+        ivar_list = ivar_list & mask if ivar_list else 0
+        if not ivar_list:
+            return {"class": class_name, "instance_size": instance_size,
+                    "ivar_list": None, "ivars": None,
+                    "error": "no-readable-ivar-list"}
+        header = bks._read(process, ivar_list, 8)
+        if len(header) != 8:
+            raise ValueError("ivar-list-header-unreadable")
+        entsize_flags = int.from_bytes(header[:4], "little")
+        count = int.from_bytes(header[4:], "little")
+        entsize = entsize_flags & 0xFFFF
+        if not 1 <= entsize <= 0x100 or count > max_ivars:
+            return {"class": class_name, "instance_start": instance_start,
+                    "instance_size": instance_size,
+                    "ivar_list": hex(ivar_list),
+                    "entsize_flags": hex(entsize_flags), "count": count,
+                    "ivars": None, "error": "ivar-list-shape-out-of-range"}
+        ivars = []
+        for index in range(count):
+            entry = ivar_list + 8 + index * entsize
+            offset_ptr = bks._u64(process, entry)
+            name = bks._u64(process, entry + 8)
+            type_ptr = bks._u64(process, entry + 16)
+            align = _u32(process, entry + 24)
+            size = _u32(process, entry + 28)
+            offset_ptr = offset_ptr & mask if offset_ptr else 0
+            offset = _u32(process, offset_ptr) if offset_ptr else None
+            # Unlike the aligned isa/class/list/offset pointers above, these
+            # point at arbitrary byte positions. Preserve their low bits and
+            # strip only the upper PAC/tag region.
+            ivar_name = (bks._cstring(process, objc_metadata.cstring_pointer(name), 128)
+                         if name else None)
+            ivar_type = (bks._cstring(process,
+                                      objc_metadata.cstring_pointer(type_ptr), 64)
+                         if type_ptr else None)
+            raw = b""
+            if (offset is not None and size is not None and 0 < size <= 16 and
+                    instance and instance_size is not None and
+                    offset + size <= instance_size):
+                raw = bks._read(process, instance + offset, size)
+            ivars.append({
+                "name": ivar_name, "type": ivar_type,
+                "name_pointer": hex(name) if name else None,
+                "type_pointer": hex(type_ptr) if type_ptr else None,
+                "offset": offset, "size": size, "alignment": align,
+                "raw": raw.hex() if raw else None,
+            })
+        return {"class": class_name, "instance_start": instance_start,
+                "instance_size": instance_size,
+                "ivar_list": hex(ivar_list), "count": count,
+                "entsize": entsize, "ivars": ivars}
+    except Exception as error:
+        return {"error": repr(error)}
 
 
 def on_hit(frame, bp_loc, _context):
@@ -315,6 +410,9 @@ def on_hit(frame, bp_loc, _context):
         row["x3_class"] = _class_name(process, values["x3"])
     else:
         row["x0_class"] = _class_name(process, values["x0"])
+    if label == "LOCKSCREEN_GESTURE_TRANSITION" and values.get("x0"):
+        row["lock_manager_ivar_snapshot"] = _objc_instance_ivar_snapshot(
+            process, values["x0"])
     _emit("LOCK_GESTURE_JSON " + json.dumps(row, sort_keys=True))
     _remember_dismissal_event(row)
     # Downstream CA/update probes can gate their bounded sample budget on the
@@ -331,6 +429,15 @@ def on_hit(frame, bp_loc, _context):
         marker["dismissal_gesture"] = _confirmed_dismissal_sequence(marker)
         marker["gesture_sequence_confirmed"] = marker["dismissal_gesture"]["confirmed"]
         try:
+            if (marker.get("for_user_gesture") == 1 and
+                    marker.get("gesture_sequence_confirmed") is True):
+                first = TRANSITION_MARKER.with_name(
+                    TRANSITION_MARKER.stem + ".first" +
+                    TRANSITION_MARKER.suffix)
+                if not first.exists():
+                    first_tmp = first.with_suffix(first.suffix + ".tmp")
+                    first_tmp.write_text(json.dumps(marker, sort_keys=True) + "\n")
+                    first_tmp.replace(first)
             temporary = TRANSITION_MARKER.with_suffix(".tmp")
             temporary.write_text(json.dumps(marker, sort_keys=True) + "\n")
             temporary.replace(TRANSITION_MARKER)
