@@ -148,3 +148,50 @@ The first installer attempt stopped before writing because the restore
 ramdisk has no usable `/tmp`; the corrected installer compares streamed bytes
 without creating a scratch file. That failed child was quit and was not reused.
 Fresh boot validation is recorded separately as `WARM_STABILITY_FRESH1`.
+
+## P544 cache-state check
+
+P544 did not apply another cache patch. Its P540-derived parent
+(`ui-class16-refresh60-dm-plugin544-settings-scale-base-from540.qcow2`, SHA-256
+`673e7e7358305a82a77e4f5cb71ca8edf49c134f795cae467e2382d73f32a577`) already
+contains the reviewed 12-byte replacement at subcache offset `0x3de3d94` and
+the matching CodeDirectory slot at `0x7cbafe2`. Read-only guest reads matched
+both staged postimages exactly. The installer rejected the parent at its
+whole-CodeDirectory preimage guard before writing; this was the intended safe
+outcome because the parent contains other CodeDirectory changes relative to
+the extracted source. No guard was bypassed and no replacement was written.
+
+This establishes byte presence on the P540 lineage, not that the patch alone
+caused any particular Settings UI behavior or that every cache/trust-cache
+combination is valid. Do not reapply this patch to that lineage. Test UI effects
+on a fresh child of P540 with the matching `system.tc`; keep the Home icon-label
+issue separate from this Settings image-scale fix. The archived read-only
+fingerprints and the two clean image checks are in
+`~/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/P544_SETTINGS_SCALE_PATCH1/`.
+
+## P549 Settings UI validation
+
+P549 is a fresh child of P548 with the same accepted TC, natural A408 scanout,
+and already-present Settings scale cache patch. A single native tap opened
+`Preferences.app`: launchd's `posix_spawn` returned success (`x0=0`, child PID
+353), then Preferences reached FBS scene-create/workspace-request/client-request
+and scene-update sites. HMP showed Home at 5 seconds after the tap and a stable
+Settings page at 20 and 55 seconds. Text including the title and major Settings
+rows is legible, so the scale path does not prevent Settings text rendering.
+
+At the IconServices bitmap-factory entry, the observer recorded 28x28 logical
+dimensions, raw scale 1.0, and non-null input CGImage pointers. Its nil-image
+trap did not fire. This only describes the factory inputs observed in those
+calls; the run did not decode the resulting row-icon images. Several Settings
+rows visibly use blue question-mark glyphs or have no leading icon, while the
+row text renders normally. Keep that asset/content issue separate from native
+scanout and from the Home app-name labels, which remain absent. P549 did not
+modify the cache, trust cache, DCP, A408, or display geometry.
+
+The relay correctly coalesced 34 host pointer states into 14 completed Recap
+packets, including an ACKed endpoint and release. The original driver waited
+for an impossible one-ACK-per-state count and was stopped; the tap and HMP
+observations were completed manually and recorded. The gate probe exited 0,
+panic scan was empty, and the child passed `qemu-img check -U`. Full trace and
+frame hashes are in
+`~/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN549_SETTINGS_APP_TRACE_FROM548/`.

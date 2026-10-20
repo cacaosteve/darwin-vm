@@ -50,7 +50,9 @@ def main():
     mode.add_argument('--tap', type=int, nargs=2, metavar=('X', 'Y'),
                       help='one bounded native tap; coordinates 0..32767')
     mode.add_argument('--swipe', type=int, nargs=4, metavar=('X1', 'Y1', 'X2', 'Y2'),
-                      help='one buffered native 400 ms swipe; coordinates 0..32767')
+                      help='one buffered swipe; duration is --steps × 20 ms; coordinates 0..32767')
+    parser.add_argument('--steps', type=int, default=20,
+                        help='number of native 20 ms buffered swipe intervals (default: 20)')
     parser.add_argument('--backend', choices=('direct', 'recap'),
                         default='direct',
                         help='live HID (default) or diagnostic buffered Recap; '
@@ -64,6 +66,8 @@ def main():
         parser.error('--ack-timeout must be in (0, 300] seconds')
     if args.ping_count < 1 or (args.ping_count != 1 and not args.ping):
         parser.error('--ping-count must be positive and used with --ping')
+    if args.steps < 1 or args.steps > 256:
+        parser.error('--steps must be in [1, 256]')
     if (args.release or args.tap or args.swipe) and not all(0 <= v <= 32767 for v in (args.release or args.tap or args.swipe)):
         parser.error('touch coordinates must be 0..32767')
     swipe_steps = deque()
@@ -74,9 +78,9 @@ def main():
         # Daemon R buffers moves with native 20 ms durations, then plays on
         # lift. UART ACK latency cannot stretch this into a long press.
         swipe_kind = 'R' if args.backend == 'recap' else 'T'
-        swipe_steps.extend(dict(down=True, x=round(x1+(x2-x1)*i/20),
-                                y=round(y1+(y2-y1)*i/20), kind=swipe_kind)
-                           for i in range(21))
+        swipe_steps.extend(dict(down=True, x=round(x1+(x2-x1)*i/args.steps),
+                                y=round(y1+(y2-y1)*i/args.steps), kind=swipe_kind)
+                           for i in range(args.steps + 1))
         swipe_steps.append(dict(down=False, x=x2, y=y2, kind=swipe_kind))
     queue, partial, replies = deque(), '', b''
     sequence = int(time.time() * 1000)

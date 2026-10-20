@@ -1188,3 +1188,1014 @@ cursor before the swipe, and accepts only a fresh confirmed marker appended
 after that cursor. Unit tests cover confirmed/unconfirmed markers and partial
 JSONL writes. The fix is not yet boot-validated. Artifacts are in
 `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_LOCK_PLUGIN290_DELAYED_PROMPT_SWIPE1/`.
+
+#### P403: Recap geometry came from mismatched A453 launch bytes
+
+P403's `dvm-input` Recap getter and `_screenSize` store both measured
+66715x2556. Its `A453=9b040100fc090000` launch payload differs from the
+accepted P395 run's `9b040000fc090000`; the extra byte produces width
+`0x1049b` (66715) instead of `0x049b` (1179). The helper therefore rejected
+its Recap swipe before constructing touch events. This supersedes the earlier
+unproven theory that Recap added a high word internally. P404 restores P395's
+measured-good A453/D586 payload and keeps the same Home-wake, Recap-dismissal,
+accepted-transition, then Home sequence. No touch-coordinate fallback or
+screen-size override is introduced.
+
+#### P404: corrected Recap geometry and acknowledged post-dismissal Home input
+
+P404 matches the P395 A453/D586 bytes (`9b040000fc090000`), so Recap reports the expected 1179x2556 geometry. Its pan recognizer accepted the dismissal (`1792229283.536`); Home down/up were ACKed at sequences `1792229374102`/`1792229374103`. The SpringBoard Home-HID observer subsequently fired at `1792229477.460`, and a later workspace transition execute returned `x0=1` at `1792229672.596`. The screen remained sparse and lacked recognizable Home icons; input delivery and workspace API success do not identify the first missing content stage. P404's durable child passed `qemu-img check -U`; its event, timeline, screenshot, and launch records are in `recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN404_P276_WORKSPACE_HOME_FROM392_HOME4/`.
+#### P405: acknowledged Home input and workspace execution; icon population remains open
+
+On a fresh P392 P276 child with the accepted P395 A453/D586 geometry, the dismissal was accepted and the acknowledged Home event reached SpringBoard (`1792230826.460`). `SBMainWorkspace` creation/execute returned success, and `SBHomeScreenEntity`, root-folder controller/view, and root/dock icon-list views initialized. `SBHIconModel` was initialized with `SBIconModelPropertyListFileStore`; the captured application-data-source argument at this initializer was null. `loadAllIcons` returned. No `setIcons:` event was recorded, but the probe did not verify its LLDB location count, so it cannot establish that the setter was not called.
+
+The HMP capture remained black; P394/P395's sustained natural A408/HMP path remains unchanged. P405's child SHA-256 `9b7b1241e3d8308300a6659f751a28fd012e7ea74615613c71374628a7d6f529` passed `qemu-img check -U`. Records are under `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN405_P276_WORKSPACE_HOME_FROM392_HOME5/`. Next, collect store URL/load results, the model application-data-source getter, root/dock icon counts, and breakpoint location counts, all armed after the accepted dismissal.
+
+#### P405: acknowledged Home input and workspace execution; icon population remains open
+
+On a fresh P392 P276 child with the accepted P395 A453/D586 geometry, the dismissal was accepted and the acknowledged Home event reached SpringBoard (`1792230826.460`). `SBMainWorkspace` creation/execute returned success, and the Home entity and root-folder view were created. SpringBoardHome initialized an icon model backed by `SBIconModelPropertyListFileStore`; the captured application-data-source argument at this initializer was null. `loadAllIcons` returned. Root/dock `SBIconListView`s initialized from list models. No `setIcons:` event was recorded, but the probe did not verify its LLDB location count, so it cannot establish that the setter was not called.
+
+The HMP capture remained black; P394/P395's sustained natural A408/HMP path remains unchanged. P405's durable child SHA-256 `9b7b1241e3d8308300a6659f751a28fd012e7ea74615613c71374628a7d6f529` passed `qemu-img check -U`. Its archive is `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN405_P276_WORKSPACE_HOME_FROM392_HOME5/`. Next, collect store URL/load results, the model application-data-source getter, root/dock icon counts, and breakpoint location counts, all armed after the accepted dismissal.
+
+#### P406: post-dismissal Home reaches `dispatchEvent:` and is rejected
+
+P406 used a fresh checked P392 P276 child, the accepted P395 A453/D586 input geometry, and the natural A408 scanout profile (`DARWIN_DCP_IOMFB_SCANOUT=1`). Graphics, CA, OGL, IOSurface, SwapEnd, descriptor, A407, and DCP-completion probes were disabled. The accepted dismissal at guest time `1792232027.252` installed the workspace and icon-state probes; each relevant breakpoint resolved to one location. The Home key down/up before dismissal and all Recap swipe packets were acknowledged. After dismissal, the helper built a non-null keyboard event and called `HIDVirtualEventService dispatchEvent:` twice; both calls returned false (`DVM_INPUT_HOME accepted=0`, sequences `1792232118152` and `1792232120351`). It did not ACK the up edge. No SpringBoard HID receipt followed either rejected attempt, and the accepted-transition-gated workspace/icon probes recorded no calls. Thus this run stops at the virtual-HID dispatch result; it is not evidence of a workspace or icon-store failure.
+
+P405 is the positive control: the same helper code and accepted gesture sequence had post-dismissal `dispatchEvent:` return true for both Home edges, followed by SpringBoard HID receipt and successful workspace execution. The P406 failure therefore occurs after event construction, at the `IOHIDVirtualServiceClientDispatchEvent` boundary inside `HIDVirtualEventService dispatchEvent:`. The Home key event is not proven delivered to BackBoard or SpringBoard in P406. The saved HMP frame remains sparse system chrome (Home indicator and information control) on black; this does not change P394/P395's natural A408 scanout evidence. P406 child SHA-256 `99367959c4393aaa3ad2d27e6238fd2b1c4edb9f88e26c0e2d0e5ff97e440b80` passed `qemu-img check -U`. Archive: `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN406_P276_ICON_STATE_FROM392_HOME6/`.
+
+Next, keep the probe limited to the keyboard service and event: record its runtime class/registry identity and keyboard-event fields before dispatch, then observe the dispatch result and any corresponding BackBoard/SpringBoard receipt. Do not infer a Home/workspace failure from an event rejected before receipt.
+
+#### P407: acknowledged Home dispatch reaches SpringBoard, workspace calls recur, Lock overlay remains
+
+P407 returned to the P392 P276 parent after the P406 dispatch rejection, with P395's exact A453/D586 input bytes and natural `DARWIN_DCP_IOMFB_SCANOUT=1`. The lock-dismissal pan was accepted at guest epoch `1792233170.694`. The post-dismissal Home down/up both received relay ACKs (`1792233261154` and `1792233261155`); the `dvm-input` observer saw the underlying IOConnect call succeed (`x0=0`) and `IOHIDVirtualServiceClientDispatchEvent` return true (`x0=1`) for both edges. A later SpringBoard HID event was observed at `1792233332.215`, after the Home dispatch. The run therefore passes the helper dispatch boundary and has a SpringBoard event after Home; it does not prove that this later event is the exact same event object.
+
+Accepted-transition-gated probes recorded multiple SpringBoard workspace creation and execute-transition calls after Home dispatch. The P407 lifecycle callback accidentally serialized every sampled register under the literal JSON key `x%d`, overwriting prior values; its execute return values are therefore unscored. The HMP capture after the later SpringBoard event still displayed the lock-screen overlay, not Home. No graphics, CA, OGL, IOSurface, SwapEnd, descriptor, A407, or DCP-completion probes were enabled. P407's child SHA-256 is `aadb92280999904d6b48631880563c400080193186da697aecd2db38d40fc9c3`; `qemu-img check -U` passed. The durable record is `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN407_P276_DISPATCH_WORKSPACE_FROM392_HOME7/`.
+
+P408 corrects the register-key serialization and adds only capped icon-model/store/list probes alongside the two workspace boundaries, all installed after the accepted dismissal. It keeps the same acknowledged Home input sequence and natural A408 scanout; the P394/P395 transport result is unchanged.
+
+#### P408: delayed Home dispatch succeeds, but SpringBoard receipt is still missing
+
+P408's accepted dismissal was recorded at guest time `1792234009.425`. The first post-transition Home attempt at `1792234022` was too early and was rejected (`accepted=0`); this is not the scored attempt. The retry at `1792234103` followed the configured 90-second settle interval and succeeded: `HIDVirtualEventService dispatchEvent:` returned true for both Home down/up. The HMP frame captured about 90 seconds later is a 1179×2556 black field with only the Home bar and information glyph (SHA-256 `1af4e756f191c466eb9a9518dc713e24471b43d116ac8b85b2b7f5325a7a9ea3`).
+
+The accepted-transition bootstrap installed the workspace create and execute hooks with one resolved location each; neither callback fired. The icon-model/store/list hooks were also installed with validated locations and recorded no callbacks. The low-rate SpringBoard HID hook had two earlier events (`1792233731.024` and `1792233898.035`), both before the accepted dismissal; it recorded no later receipt after the successful Home dispatch. Thus this is a bounded missing-receipt/workspace observation after an accepted dispatch, not a content-population or scanout failure. The run had a procedural deviation: I manually replayed the swipe and Home retry after stopping the automated trigger before it completed its full 200-second lifecycle grace. P409 repeats the known P407 automated timing and adds only a post-accept, keyboard-processor-filtered BackBoard dispatch observer plus the minimal workspace boundaries. Natural A408 scanout remains enabled and graphics/CA/DCP probes remain disabled.
+
+P408's child SHA-256 is `5551ffb17e0807c5f5c356d90dd13efb7ea7a3e805718ffaa4a98cf3d9fa6df3`; `qemu-img check -U` passed. Durable records are under `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN408_P276_WORKSPACE_ICONS_FROM392_HOME8/`.
+
+#### P409: workspace transition succeeds, Lock Screen remains visible
+
+P409 repeats the P407 P276 input timing on a fresh child of the same checked P392 parent: complete the full 200-second Home-entity/ADFL lifecycle grace, wait for a gesture-confirmed dismissal, then send the delayed Home event. After acceptance it arms only the two workspace lifecycle boundaries, the Home virtual-HID call/return observer, and a narrow BackBoard `BKHIDPrimaryEventProcessor` dispatch hook filtered to `BKHIDKeyboardSignpostEventProcessor`, `BKKeyboardHIDEventProcessor`, and `BKButtonHIDEventProcessor`. That hook records the event wrapper and bounded raw `HIDEvent` bytes. It is intended to distinguish helper construction/dispatch acceptance from BackBoard keyboard processing and SpringBoard HID receipt; it does not add icon-content or graphics probes. Natural A408 scanout stays unchanged.
+
+P409 completed its bounded post-transition window. The dismissal gesture was accepted at `1792235086.800`; delayed Home down/up both received relay ACKs, and `dvm-input`'s virtual-HID dispatch returned true for both. The accepted-transition workspace hooks then recorded three create requests and two execute-transition returns, both with `x0=1`. Thus the workspace operation did not fail at its observed return boundary. The keyboard-processor filter was armed but recorded no matching dispatch; that absence is not promoted to an input failure because SpringBoard did execute workspace transitions. The final 1179×2556 HMP image still showed the Lock Screen time/status, “Swipe up to open,” information control, and Home bar, with no Home icons (SHA-256 `6e8ca162b5234400f0fecaa8c7e51c2734b885ec73c239239dfcf2a97f974feb`). The next discriminator is the accepted-transition-gated icon store/data-source/list state, not display transport. P409's child SHA-256 is `d9202ea822a7bda5d368457180aff45501e39b25ec14438ab90bf8d7e24a6b99`; `qemu-img check -U` passed. Durable archive: `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN409_P276_KEYBOARD_ROUTE_FROM392_HOME9/`.
+
+P395 is already stopped and durably archived; its child SHA-256 is `42e57973ae9c8c6a5f63b03417916ba691f3a23d980cd2896cf6507cc5d72fe9`, and its recorded `qemu-img check -U` reported no errors. No P395 guest remained running when P409 began.
+
+#### P415: acknowledged Home event and successful workspace return, Lock Screen still rendered
+
+P415 used the P392 P276 parent and P395's valid Recap geometry. SpringBoard confirmed the dismissal pan (`1792239337.329`), then acknowledged Home down/up were sent and SpringBoard observed a Home HID event (`1792239538.682`). A later workspace execute-transition returned `x0=1` (`1792239574.670`) and Home-entity initialization returned non-null. This distinguishes P415 from a keyboard dispatch or workspace-return miss. The captured frame nevertheless retained the Lock Screen “Swipe up to open” prompt and had no recognizable Home icons. `isAuthenticated` returned true and `hasPasscodeSet` returned false, so no passcode was required for this observed state.
+
+P415's accepted-transition-gated SpringBoardHome callbacks saw widget-grid and property-list icon-model stores, a returned `loadAllIcons`, and root/dock list-view and root-folder view construction. They did not map list counts/insertions to the root/dock models. P410's earlier four-icon count was on an unjoined model and is excluded as a root-list result. The next run uses only root/dock-associated list count/population and content-visibility/icon-view boundaries, after the accepted gesture; it does not re-enable graphics or display probes. P415 was stopped after the content snapshot; no panic occurred. The durable child SHA-256 is `41eab5f73e4726d411c59a8d37fab7ca74ddc1d1a15aff6b932bbcb0f49ae3e1`; `qemu-img check -U` passed. Records are under `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN415_P276_HOME_SETUP_OFFLINE_CONTINUE_FROM392/`.
+#### P419: acknowledged Home reaches SpringBoard; root list contains widgets only
+
+P419 used a fresh P392 P276 child, the P395 A453/D586 geometry and input
+sequence, natural A408 scanout enabled, and no CA/OGL/IOSurface/descriptor/
+SwapEnd/A407/DCP-completion probes. Workspace and root-content observers were
+armed only after the accepted Cover Sheet gesture (`1792244456.794`). The
+post-dismissal Home down/up were both acknowledged (sequences
+`1792244547361`/`1792244547362`); SpringBoard later recorded the joined HID
+receipt at `1792244664.004`. `SB_WORKSPACE_EXECUTE_TRANSITION_RETURN` returned
+raw `x0=1` at `1792244467.478`, `1792244607.295`, `1792244705.137`, and
+`1792244883.701`; Home-entity initialization returned non-null. No failed
+transition return was observed. The Home event therefore reached the existing
+workspace/content branch; keyboard construction/dispatch is no longer the
+next cut.
+
+The root `SBIconListModel` (`0x750be90d00`) reported eight entries, and every
+sampled index 0–7 returned `SBWidgetIcon`; the four root icon views that were
+assigned content were assigned widget-icon objects. The dock model
+(`0x750be90b00`) reported four entries and its `icons` method returned
+`__NSArrayI` objects, but this run did not decode their members. Thus the
+evidence says the observed root collection has no `SBApplicationIcon`, while
+dock membership remains open. The settled HMP frame still had only status /
+charging chrome, the information glyph, and the Home indicator; no recognizable
+app grid appeared. A408/HMP was left on the P394/P395-proven natural scanout
+profile; this run is not a sink regression.
+
+The child was stopped after the transition and collection boundary rather than
+using its idle bound. SHA-256 is
+`8c1685664f5aad66e21973518703409958dc51c2434afa1c90191403afd0735c`;
+`qemu-img check -U` found no errors. Durable records, screenshots, and the
+post-swipe A408/HMP timeline are under
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN419_P276_ROOT_CONTENT_KEYBOARD_FROM392_HOME19/`.
+The next narrow cut is to decode the four dock-array members and the saved
+icon-state store/source after the same accepted-transition gate.
+
+#### P420: acknowledged Home reaches UIKit's HID-to-event conversion, but not workspace creation
+
+P420 is a fresh P392 child with P395's exact A453/D586 input geometry and natural `DARWIN_DCP_IOMFB_SCANOUT=1`; all graphics, CA, OGL, IOSurface, descriptor, SwapEnd, A407, and DCP-completion probes were off. Workspace and content observers were installed only after the gesture-correlated accepted dismissal at guest time `1792245660.438`. Home down/up were both relay-ACKed (`1792245684432`/`1792245684433`). BackBoard's keyboard signpost, keyboard, and button processors handled the same HIDEvent object (`0x7663835810`) for each edge. SpringBoard then entered UIKit's `-[UIEventEnvironment UIKitEventForHIDEvent:]` at `0x18493425c` at `1792245687.752` and `1792245691.769`, establishing receipt at the HID-to-UIEvent conversion boundary. The helper source constructs the Home keyboard event with `IOHIDEventCreateKeyboardEvent(page=0x0c, usage=0x40, down/up, options=0x40)` and sets integer field 4 to 1 (`tools/input/dvm_input.c:216-221`).
+
+No accepted-gated `SB_WORKSPACE_CREATE_REQUEST`, `SB_WORKSPACE_EXECUTE_TRANSITION`, root/dock list/view creation, or root-content callback followed. `SBHomeScreenEntity` init returned non-null three times, and `isAuthenticated=1` / `hasPasscodeSet=0`; an `SBIconListModel` count of four happened before the post-dismissal Home key and was not joined to root/dock. The conversion method's return and subsequent UIApplication event delivery were not instrumented, so this is a no-workspace result with the next missing edge narrowed to post-conversion dispatch, not a conversion failure. The sampled post-Home HMP frame is black (SHA-256 `d312521cf1e978b08337f0c936bdf71f2d7a61a3259dc5bd07792494c5cf42b9`); this is a guest UI-state sample and does not change the established P394/P395 scanout path.
+
+P420 recorded no panic. Child SHA-256 `d615da91f2090044e9712bea664d84bced252b1a9a0b0a2c71b838ee2ff8a844` passed `qemu-img check -U`. Its durable records are under `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN420_P276_HOME_INVENTORY_FROM392_HOME20/`. The next run should trace only the accepted Home HIDEvent through UIKit conversion return and `UIApplication handleEvent:withNewEvent:` / `sendEvent:`; keep natural scanout unchanged and do not re-enable graphics probes.
+
+#### P421: Home event executes workspace transitions, but P421 content hooks were invalid
+
+P421 is a fresh child of the checked P392 P276 parent, using the same helper TC,
+A453/D586 input geometry, and natural `DARWIN_DCP_IOMFB_SCANOUT=1` profile as
+P395. CA/OGL/IOSurface/SwapEnd/descriptor/A407/DCP-completion probes were off.
+The accepted Recap dismissal was recorded at `1792246986.127`; the acknowledged
+post-dismissal Home event was delivered at `1792247076.706` and its
+`HIDVirtualEventService` dispatch returned true. SpringBoard entered UIKit's HID
+event conversion, issued six observed workspace create requests, and returned
+from three execute-transition calls with `x0=1`. The observed workspace API
+path therefore succeeded; that result alone does not establish that the lock
+overlay was removed.
+
+P421's 900-second post-Home observation ended with a stable 1179×2556 frame
+showing only status/charging chrome, the information button, and the Home
+indicator on black (SHA-256
+`381a35659a0d1c451f02a5866860fa7ba15aef7fc2e916168dcad6de2e53b35b`). It did
+not show recognizable wallpaper or app icons. The root-content probe emitted
+only `POSTACCEPT_ROOT_CONTENT_READY`; its class resolver had a misplaced,
+unreachable `try` block, so all class-filtered callback silence in P421 is
+unscored. I corrected `_class()` to call the existing Objective-C class-name
+resolver under its exception guard. P422 will re-run the same accepted-gated
+workspace/content path on a fresh child to validate that fix, with graphics
+probes still disabled and the complete post-transition sampling window kept.
+
+P421's child SHA-256 is
+`08b29dbac243f8f0922d5019069bbef7154aa9f648445aed40241d28fe38551d`;
+`qemu-img check -U` found no errors. Its durable records are under
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN421_P276_HOME_EVENT_ROUTE_FROM392_HOME21/`.
+
+#### P424: acknowledged Home reaches SpringBoard; workspace transition succeeds
+
+P424 used a fresh P392 P276 child with P395's exact `A453=9b040000fc090000` input geometry and natural A408 scanout enabled. SpringBoard accepted the Recap dismissal at `1792252639.182535`. The post-dismissal Home key down/up were acknowledged, and a later SpringBoard HID callback ran at `1792252812.015432`. Workspace creation returned objects and `executeTransition:` returned `x0=1` twice. This closes the Home-event and workspace-failure branches for this run; it does not prove the Home grid is visible.
+
+The run intentionally kept only readiness/input, workspace create/transition, natural A408 diagnostics, and HMP sampling. Both post-Home HMP screenshots have SHA-256 `6734179bb6c485ca24207d7add95b30dc979e59c0fbd144b615fef90f8b606a7`. They show sparse system chrome on black, without wallpaper or icons. The timeline records 345 rows, 343 successful HMP samples, 312 source hashes, 70 HMP hashes, and 11 exact source/HMP pixel-hash matches; matching is established for those samples only. The next probe should inspect SpringBoard workspace visibility, icon-store/source state, and Setup transition events, installed only after the accepted dismissal. P424 child SHA-256 `9c829b25ea7804079263b396a557aad1c54ba306facbe0f29324963e82b95bb7` passed `qemu-img check -U`; records are under `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN424_P276_MINIMAL_POSTACCEPT_FROM392_HOME23/`.
+
+#### P427: Home is ACKed but no workspace transition follows; next capture the keyboard route
+
+P427 is a fresh child of the P425 P276 lineage, using the accepted `system.tc`,
+natural A408 scanout, and no graphics/CA/OGL/IOSurface/descriptor/A407/DCP
+probes. The accepted lock dismissal was confirmed at guest time
+`1792255317.295358`. SpringBoard emitted one `SB_WORKSPACE_CREATE_REQUEST` at
+`1792255322.260976` (`SBMainWorkspace`, `_initialized=1`) in the explicit
+`after-accepted-dismissal-before-home-hid` phase, but no
+`SB_WORKSPACE_EXECUTE_TRANSITION` callback followed. The post-dismissal Home
+key was later ACKed by `dvm-input`; serial records show keyboard event creation
+and `dispatchEvent:` returning `accepted=1` for both edges. The sampled HMP
+frame still says “Swipe up to open.” Thus helper construction/submission is
+proven, while this run did not trace the Home event through BackBoard or
+SpringBoard and does not locate the first missing delivery edge.
+
+The generic input observer had exhausted its 64-hit direct-touch budget on the
+two Recap swipes, and the Home-specific keyboard/UIApplication route hooks were
+not armed. A Setup-tap watcher also matched `SB_ACTIVATE_SETUP` in the READY
+record's static `sites` metadata, rather than an actual callback event, and
+sent its buffered tap alongside Home traffic. Treat that tap as invalid and
+exclude P427 from interpreting the Home route. P428 removes the Setup watcher,
+serializes the inputs, and dynamically arms only the Workspace create/execute
+sites plus Home helper → BackBoard keyboard → SpringBoard HID/UIKit event-route
+observers after the accepted dismissal.
+
+P427 recorded no panic. Its child SHA-256 is
+`2d391166dcda7bbe7081e34f9376deda80ef668c9309fa005bfd2a4af2eb5191` and
+`qemu-img check -U` reported no errors. The durable bundle, including the
+post-Home HMP screenshot, is
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN427_P276_SETUP_CONTINUE_CORRECT_TAP_FROM425/`.
+The A408 scanout implementation and its P394/P395 validation remain unchanged.
+
+#### P429: the top-clustered P427 frame is a post-gesture guest transition state
+
+Offline comparison of P427's HMP timeline localizes the layout change to the
+accepted CoverSheet dismissal. Before the accepted transition, frame
+`a408-0000-02.png` at `1792255289.349` shows the prompt, info control, and Home
+indicator at the bottom (bright-pixel row bands 2437–2515). P427 records the
+accepted gesture at `1792255317.295`; frame `a408-0000-57.png` at
+`1792255322.146` places the same controls at rows 247–334, an upward
+translation of about 2,180 pixels. `SB_WORKSPACE_CREATE_REQUEST` follows at
+`1792255322.261`, before the Home HID event, and no
+`SB_WORKSPACE_EXECUTE_TRANSITION` was recorded. The setup observer emitted
+only its READY/site-list row; no Setup activation callback occurred. This is
+not evidence of a fixed display-mode error or a proven Setup screen. The
+shared displacement after the accepted gesture points to an unfinished guest
+CoverSheet/workspace transition or common presentation transform; the exact
+layer producer remains unmeasured. P427 HMP RGB hashes for frames 57–75 are
+identical (`e530bce7…dbf46e23`) over about ten seconds, so the shifted
+composition persists in that sampled interval rather than appearing in one
+captured animation frame.
+
+P429 is a fresh, no-input child of the same P425 P276 parent with the same
+`system.tc`, 1179×2556 framebuffer mode, A453/D586 profile, and natural A408
+scanout. HMP and A408 source frames report 1179×2556 (stride 4864). Before any
+Home or Setup input, HMP frame `a408-0000-28.png` at `1792257757.607` shows
+the Lock Screen prompt, info control, and Home indicator at their normal
+bottom positions; later periodic HMP frames preserve the bottom-positioned
+system chrome. This argues against a persistent bad pixel geometry or a host
+scanout layout error.
+
+P429's geometry breakpoint addresses resolved, but no `UIScreen`/scene getter
+return or view/layer geometry event was recorded. P427's screen-size input
+helper values are not UIKit bounds. Therefore 393×852 logical points at 3×
+remains an inference from 1179×2556; actual `bounds`, `scale`, `nativeScale`,
+orientation, safe-area insets, CA display bounds, and named layer frames are
+unscored. P429 never emitted the probe's shell-return gate; its capped view
+hooks were armed later on that same no-input guest and produced no samples.
+The probe's class resolver and shell-gate process filter were corrected, but
+this run does not validate the getter/frame hooks. No values were forced.
+P429 recorded zero panic lines, and `qemu-img check -U` found no errors. Its
+child SHA-256 is
+`bc5ddd9d58b576fa7f435f60c9eb47995ee86b0197621023921512903bc43894`; durable
+records are under
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN429_P276_LOCK_GEOMETRY_FROM425/`.
+
+#### P430/P431: accepted dismissal without a workspace request
+
+The initial hardware-button caller attribution is withdrawn: it used the wrong
+P415 slide. With each run's saved slide, P409's create-to-execute edge is
+`SBWorkspace requestTransitionWithOptions:builder:validator:` at `0x224475e88`.
+Creation returns at `0x224475ec8`; the optional builder is called at
+`0x224475ee4` with the request in `x1`, then execution is called at
+`0x224475ef8` with the same request in `x2`. P415's earlier orientation request
+comes from `SBSwitcherController` at `0x22435e9fc` and executes through the
+public wrapper `0x224311b80`. Its completion handler is installed before
+submission; it does not trigger submission. P427 captured only creation entry
+while copying a request (`copyMainWorkspaceTransitionRequest`, return boundary
+`0x224384ac8`), with no returned copy. It does not establish a completed
+request waiting for an animation callback. P433 archives the exact static
+disassembly/selector evidence and adds capped builder call/return boundaries.
+P427's create-return matcher additionally required LLDB thread-ID equality,
+which can discard a return after vCPU migration; its absent return is not a
+proved stall. Current matchers retain guest TPIDR/SP identity without that
+brittle requirement.
+
+P430 did not score behavior: the accepted-transition callback failed on a
+`None` ivar list and therefore installed the dynamic probes late. The probe
+now treats absent ivars as an empty list. P431 validated immediate installation
+after a gesture-confirmed dismissal (`1792261048.633`) on a fresh exact P425
+P276 child. Its accepted-state ivar values are withdrawn: the metadata reader
+rounded 4-byte offset slots down to 8-byte alignment, aliasing neighboring
+ivars (including `_windowScene`). The pointer helper is corrected and covered
+by a host regression. P431 recorded no
+workspace-create or execute event during the 240-second follow-up. Because no
+request appeared, P431 does not test whether an existing request advances.
+
+The capped post-accept geometry callbacks saw identity transforms for the
+CoverSheet hit-testing, dest-out, and date views; the CoverSheet contents and
+fixed footer requested `(0,0,589.5,1278)` frames. Their hierarchy snapshots
+were empty, and prompt/root layer geometry was not available, so this run
+cannot assign the shifted controls to a root transform or an animation
+completion.
+
+The post-dismissal Home relay was ACKed. SpringBoard recorded temporally nearby
+`UI_EVENT` at `1792261050.903` and `.932`; the event identity and conversion
+return were not decoded. The minimal input observer recorded no
+corresponding `SPRINGBOARD_HID_EVENT` and the workspace probe recorded no
+workspace request. The next experiment should follow only
+the acknowledged Home event through `dvm-input`, BackBoard's keyboard
+processor, UIKit conversion/dispatch, and SpringBoard receipt, while retaining
+the minimal workspace-create/execute gate. The final HMP frame still showed
+the shifted Lock Screen controls (SHA-256
+`d1ddd89c29bfe0bf6833c5351bebb0946f40157fec018ed53fe0b81173d4d839`). The
+post-accept A408/HMP timeline has 355 rows, 318 distinct source RGB hashes,
+and one HMP RGB hash; that is a stable shifted frame, not a transport regression.
+No panic was found. P431 child SHA-256 is
+`26909cc7e8685cea3a7f9e87524fb16fe1915e899e971495ad6076e061bb8156` and
+`qemu-img check -U` passed. Durable records are under
+`/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN431_P276_WORKSPACE_HANDOFF_FROM425/`.
+
+P432 was interrupted before instrumentation or input and yields no route or
+workspace verdict. Its early serial fragments and checked child are archived.
+P433 uses the same exact parent/TC/input profile, with the Home-event route
+and the corrected synchronous workspace builder boundaries armed only after
+accepted dismissal. Geometry and Setup/content probes are excluded.
+
+
+#### P433: request copy returns; no retained workspace transaction at freeze
+
+P433 is a fresh exact P425/P276 child with the same helper TC and natural
+A408 sink. After a serialized retry, the accepted dismissal is
+`1792262467.791527` on guest TPIDR `0xffffffe5cc743060`. Deferred input and
+workspace hooks installed immediately. Home down/up were acknowledged;
+the helper's two virtual-dispatch returns were true, BackBoard keyboard
+processors saw both edges, UIKit classified them as type 3 and returned
+`UIPressesEvent` `0x7afbd7cbe0`. That same event reached
+`-[SpringBoard sendEvent:]` (IMP `0x224325968`), `UIApplication sendEvent:`
+and `handleEvent:withNewEvent:`. Absence of `_handleHIDEvent:` is therefore
+not evidence of a delivery failure on this UIKit presses route. The actual
+same-build keyboard mapper recognizes consumer page `0xc`, usage `0x40`,
+as press type `0x65` (`0x184e32c48..0x184e32c68`); no input values were changed.
+
+`copyMainWorkspaceTransitionRequest` entered at `1792262471.775034`; its
+create call returned at `.791099` and the copy returned at `.795387`, both
+with `x0=0x7afbf48280`. Return correlation uses guest TPIDR/SP, not LLDB's
+vCPU thread ID. The copy caller's LR is `0x232bd9f04`, minus this run's
+`0xe9b4000` slide = `0x224225f04`, inside
+`-[SBToAppsWorkspaceTransaction initWithTransitionRequest:applicationController:]`.
+Its next selector is `ancillaryTransitionRequestsForTransitionRequest:` at
+`0x224225f10`; it is not P409's request-builder submission edge. No builder,
+public/internal execute, or orientation-enqueue event appeared in the covered
+240-second post-accept window. This does not prove an existing transaction
+waited for execution: the initializer can be downstream of an earlier execute.
+
+At the held endpoint, the SpringBoard task mapping was validated using both
+kernel proc name and userspace `___progname` through that task's explicit
+pmap (`root=0x10124240c00`). The retained `SBMainWorkspace` at
+`0x7afd8d4380` has both subclass/base `_currentTransaction` slots zero and no
+active suspended transitions. Its `FBWorkspaceEventQueue` has
+`_processingEvents=0` and `_executingEvent=nil`. The matched main thread's
+saved chain returns through `_SBSystemAppMain+0x14a8` (`0x224458c80`) to the
+normal event-loop frames; it is no longer inside request creation. The old
+request addresses now have other classes and cannot be read as retained
+requests.
+
+The retained lock manager `0x7afca0a140` has `_uiUnlocking=0`,
+`_handlingUnlockRequest=0`, `_isUILocked=0`, `_isScreenOn=0`. Its retained
+presentation manager `0x7afca76800` has `_dismissalCommitted=1` and
+`_dismissingCoverSheet=1`; that flag alone is not an outstanding-completion
+verdict. The primary sliding controller `0x7afd175500` has current/latest
+presentation state 7, no stored completion block/group or active transition
+subcompletion/retarget block. The guest's state-name table
+`0x268980c38` (`stringForPresentationState:` at `0x224681b48`) names 7
+**dismissed**; 3 is translating up and 4 positioned offscreen. Thus a
+pending sliding animation is not established by the freeze. No guest
+methods were invoked during this read-only retained-object walk.
+
+Static next boundaries are now explicit: the state-7 arm calls the delegate's
+cleanup at `0x2243db54c`; delegate IMP `0x224799bf0`; manager
+`_cleanupDismissalTransition` `0x2243f0974` calls `_cleanupATransition` at
+`0x2243f0a08` and `_notifyDelegateDidDismiss` at `0x2243f0acc`.
+`_notifyDelegateDidDismiss` (`0x22479d004`) enqueues block invoke
+`0x22479d078`, whose `B+0x20` capture is the manager and whose call at
+`0x22479d098` sends `lockScreenViewControllerDidDismiss` to its delegate.
+These name the next narrow live discriminator; they do not prove it was
+missed on P433.
+
+P433's final HMP is black (PNG SHA-256
+`d312521cf1e978b08337f0c936bdf71f2d7a61a3259dc5bd07792494c5cf42b9`),
+and the screen-off state confounds interpreting that endpoint as missing
+Home content. This does not reopen the proven host sink. No panic/critical
+restart was found. Child SHA-256
+`60f9b0be95ab94f16a422a46310dbbdd6652eaff17a703832180daa3b65061f4`;
+`qemu-img check -U` passed. All events, explicit-task stacks, sparse physical
+pages, retained-object JSON and selector/disassembly evidence are archived in
+`~/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN433_P276_HOME_ROUTE_FROM425/`.
+
+P434 keeps the same parent/TC/scanout and installs only capped retained-root
+geometry, cleanup/queued-did-dismiss and workspace hooks after acceptance.
+It removes the unfulfilled 200-second lifecycle grace before the same natural
+Home wake/32-step swipe, because P433's screen was already reported off at
+acceptance. This is an explicit input-timing discriminator, not a forced
+backlight or display-state change. Results remain pending.
+
+
+P433's additional offline timing join (`analysis.workspace-entry-relative-accepted.json`)
+separates the compared request paths. P409's synchronous builder create/execute
+is +130.230/+130.243 seconds after acceptance. P415's copy creation returns at
++11.035 seconds; the later +11.473-second execute is a **different orientation
+request**, created from `0x22435eaf4`, not proof that completion of the copied
+request triggers execute. P415 also creates a request inside the CoverSheetToApps
+initializer (`0x2249d1c14`). P427's sole copy creation is +4.966 seconds; its
+missing return remains subject to the superseded thread-ID filter. There is
+no demonstrated missing asynchronous copy-to-execute callback in these logs.
+The next live cut therefore observes the actual CoverSheet cleanup and queued
+DidDismiss boundary rather than forcing or assuming such a callback.
+
+P433's retained `SBCoverSheetPositionView` adds a concrete position measurement:
+`_progress=1.0`, `_contentScale=1.0`, `_contentCenter=(294.75,-639.0)` at
+`0x7afca77200`, from runtime metadata offsets `+0x1b0/+0x1b8/+0x1d0`.
+This is an offscreen content position, consistent with state 7; it is not
+proof that the global root/viewport is wrong. P434 snapshots these named
+fields at the existing cleanup boundaries without adding a progress-tick probe.
+
+
+#### P434: normal Lock chrome → presentation-position shift → retained render abort
+
+Fresh exact P425/P276 child; QEMU, parent and helper TC SHA-256 are identical
+to P431/P433. Natural A408 scanout remained enabled and unchanged. Initial
+input before visual readiness was ACKed and reached BackBoard but produced no
+accepted pan; no cleanup verdict is scored from it. The host controller was
+stopped while idle. Natural A408/HMP then showed bottom-positioned prompt,
+info control and Home indicator (`a408-0000-84.png`, HMP RGB
+`ade62aac93a8b55891c1245dc5b43abc265f84c17023c56313553e108a04ac09`).
+A second serialized swipe on the **same** child was accepted at
+`1792264218.872608`, TPIDR `0xffffffdf425e3830`.
+
+The deferred probe's ready SHA-256 is
+`5254fa3c627e8eddd9f849beff1f6a0f5b6ad20ba85cdc4e10a8679b110fc921`.
+At acceptance: lock manager `0x798eb1e300` reports screen on, UI unlocked,
+UI unlocking; sliding controller `0x798edcc700` is state 3 (translating up),
+latest settled state 1 (fully presented), completion group `0x798fe4c820`
+(raw value in the event is authoritative), and workspace `0x798f3e4460`
+has a current transaction. The position view `0x798ebb7200` reports progress
+`0.8043818466`, scale 1, content center `(294.75,-389)`.
+
+The retained root/window bounds stay `(0,0,589.5,1278)`, and observed affine /
+layer transforms are identity. The position content view `0x798eb1f480`
+returns frame `(0,-1028,589.5,1278)` and later `(0,-1278,589.5,1278)`.
+At exact producer `0x224c69034`, `SBCoverSheetPositionView` applies presentation
+`transform`; at `0x224c690ac` it applies **position**, with measured stack
+points `(294.75,-389)`, `(-410.5 y)`, `(-502 y)`, `(-540.5 y)` and explicit
+velocity values. These calls are inside
+`positionContentForTouchAtLocation:withVelocity:progress:transformMode:forPresentationValue:`.
+The sliding snapshot advances to state 5 (transitioning out); its group and
+workspace transaction are still present during these samples. This directly
+identifies an upward content translation, not a global display/root scaling
+fault. It does not prove the animation finished or that HMP captured every
+intermediate presentation value.
+
+No queued DidDismiss/cleanup or new execute was observed before the controller
+cut the window at about +31 seconds: post-delay Home down was allocated but
+`dispatchEvent:` returned false. The serial line has nonnull service/client/
+event (`sequence=1792264249369`). The relay's generic "could not construct"
+exception is **not** an allocation failure. The requested 120-second post-Home
+window therefore did not run and cannot supply a no-completion verdict.
+
+The guest was retained and a complete, SHA-256-recorded 12 GiB DRAM capture
+was made before QEMU quit. The matched thread address now belongs to live
+SpringBoard PID 510 in `applicationDidFinishLaunching:` loading SplashBoard
+manifests (`_kevent_id` / libdispatch ownership wait / FrontBoard SQLite).
+The old lock/workspace pointers are unmapped in that explicit pmap. A stale
+SpringBoard PID-390 proc candidate has zero threads and its old root now maps
+`watchdogd`; it is excluded. Thus thread-address equality is not sufficient to
+extend the old gesture's object identity across this endpoint. No SpringBoard
+exit reason was recovered; a specific SpringBoard crash cause is not assigned.
+
+There **is** a same-boot backboardd PID-72 CRASHINFO record:
+`ram/10140000000.bin+0x38aa8000`, SIGABRT (namespace 2/code 6), crashed TID
+`0x3a4`. The retained PID-72 task mapping validates userspace `backboardd`;
+its aborting thread `0xffffffdf423fc180` contains TID `0x3a4` at `+0x4e8`.
+A later backboardd PID 483 is resident. The abort stack is
+`___pthread_kill` → `abort` → `__assert_rtn` →
+`CA::OGL::Context::push_surface` → `AsynchronousNode::retain_surface` → nested
+`ImagingNode::render` / `render_layers` / `LayerNode::apply`. Use return PC
+**minus four**: LR `0x18445e2d0` is the next function's boundary, not evidence
+of `reset_statistics`. The actual fatal call is `0x18445e2cc`, assertion
+`found != slist->end ()`, `ogl-context.cpp:1309` (0x51d).
+
+The corpse's saved `__assert_rtn` frame at `0x1040f7420`, and its prologue's
+callee-save slots, recover context `0x7496ef8000` and surface `0x74977b5dc0`.
+The context's runtime vtable identifies SWContext; slot `+0x308` resolves to
+`SWContext::create_surface_from_iosurface` at static `0x1846c253c`.
+Surface flags `+0x64=0xf` select context list `+0x60`; that complete list has
+one other surface, `0x74977b5ce0`, and not the target. The complete `+0x68`
+list likewise lacks the target. The wrapper has dimensions 1179×2556,
+stride 4864, CPU base `0x7ee1400000`, IOSurface pointer `0x74971119c0`.
+These are **corpse-memory facts**, not a call-time factory-return capture or
+a new source-to-HMP identity proof.
+
+Static comparison supplies the next producer discriminator. The SW IOSurface
+wrapper (`0x1846c253c..0x1846c25f8`) locks the IOSurface, obtains base/stride/
+size, calls `create_surface_from_data`, stores/retains IOSurface at surface
+`+0xc0`, and returns without tracking it in a context. In contrast, normal
+SW creation calls `Context::track_surface` at `0x1846c2374`, and Metal's
+IOSurface wrapper calls it at `0x184568a6c`. `track_surface` inserts into
+context `+0x60/+0x68`, following the exact same flag partition as
+`push_surface` (`0x18450366c..0x184503688`). Missing registration is therefore
+the leading concrete software-path hypothesis; no assertion, pool membership,
+completion, pixels, or guest binary was forced. Next: a minimal live join of
+SW factory return → wrapper pointer/list state → the matched push/assert,
+without the global geometry getters. Probe timing sensitivity remains open.
+
+Other same-boot records include Setup PID 431's 10-second scene-update
+watchdog (`+0x2158c000`) and MercuryPosterExtension PID 429 SIGILL
+(`+0x1ea88000`). Their exit times are not paired to this gesture and they are
+not substituted for the measured backboardd assert.
+
+P434 child SHA-256
+`cdb04c6ed609607ed5061bb8ede9abcce321731fb358d03a08db7494a50d270b`;
+zero kernel panic/critical-reboot lines; `qemu-img check -U` passed. Durable
+records (including complete RAM, input/callback logs, HMP timeline, static
+proof and reproducible `ca_surface_tracking.py` output) are under
+`~/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN434_P276_CS_COMPLETION_FROM425/`.
+
+
+### P435: pre-dismissal coverage cut; retry P436 retains the accepted gate
+
+P435 (`UI_CLASS16_REFRESH60_DM_PLUGIN435_P276_SW_TRACKING_FROM425`) used
+exactly the P425/P276 parent/TC and unchanged natural A408 host sink. Shell
+service and native input initialization returned; one ordinary Home wake
+was ACKed (down/up 42.959/7.168 s). No natural A408 frame or accepted
+dismissal preceded the diagnostic cut, so the four deferred SW factory/
+return/push/assert sites **never armed**. HMP `stop` interrupted the active
+LLDB batch during a startup snapshot attempt; LLDB exited and detached
+before that first capture. This is coverage loss, not a renderer or
+completion negative. The subsequent held-controller capture preserved all
+12 GiB under `startup-coverage-loss-snapshot/`.
+
+The frozen roots validate userspace names for backboardd PID 72,
+SpringBoard PID 326 and dvm-input PID 85. Examples include backboardd's main
+queue in CoreMotion/libdispatch kqueue processing and SpringBoard sampled
+in `__xzm_xzone_malloc_freelist_outlined`; the latter's saved FP chain
+immediately reaches non-code data, so it cannot name a reliable caller or
+permanent allocator stall. No Setup process candidate was found. The
+snapshot contains startup watchdog/extension-timeout records, without a
+matched P434-style backboardd ownership-abort record. A single snapshot
+cannot assign those records as the no-frame cause. Complete evidence is in
+`analysis.process-summary.json`, `analysis.selected-thread-symbols.json`
+and `oskcdata-full.txt`; task generation/TPIDR reuse remains excluded from
+cross-time object joins.
+
+P435 child SHA-256
+`d97d91750f2fe3daf919c722228d6a7c0298312045d32ed2cdc4948b6eef3bab`;
+`qemu-img check -U` passed, zero kernel panic/critical-reboot serial lines.
+The child, logs, source pack, frames and complete RAM are durable under
+`~/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN435_P276_SW_TRACKING_FROM425/`.
+
+The host trigger now creates the empty relay event stream on a clean
+child. P436 restores the earlier one-shot Home wake after native-input
+readiness if no rendered screen exists, then **still** waits for recent
+natural lower-screen content before dismissal and post-accept probe arms.
+It does not force UI state or call workspace/completion methods. Historical
+frame-sampler `home_return_seen` meant **Home-entity constructor return**,
+not recognizable Home UI; new rows use `home_entity_return_seen`.
+No ownership repair, guest binary, geometry or model change was applied.
+
+### P436: bounded pan-terminal gap; live ownership chain still unscored
+
+`UI_CLASS16_REFRESH60_DM_PLUGIN436_P276_SW_TRACKING2_FROM425` completed its
+condition-bounded run and archived the child. The exact P425/P276 parent,
+helper TC, model environment and normalized launch argv match P434
+(`analysis.launch-parity-P434.json`). Shell returned at `1792267533.624`;
+native input became ready by `1792268483.914`. The ordinary Home wake and
+all 34 Recap packets were ACKed. The first Recap touch alone took 37.061 s
+before ACK (`visual-ready-relay.log`, sequence `1792269420519`); this is a
+measured input delay, not proof of a cancellation or a guest timeout.
+
+Natural A408/HMP content appeared before the swipe: frame `a408-0000-02`
+has source/HMP RGB SHA-256
+`9bb2be25db30a3ab25a1e1e1adce729f09fd93e72e7789017e423a12b43511bc`.
+There are 367 timeline rows, 362 captured frames and 5 capture-error rows.
+The accepted CoverSheet recognizer `0x791ce27200` on guest TPIDR
+`0xffffffe1ef9f5120` reached shouldBegin=1, began, and changed. There was
+no `HOME_GESTURE_PAN_TOUCHES_ENDED`. The lock-manager transition at
+`1792269474.785` had `for_user_gesture=1`, followed 140 ms later by a
+non-user transition. The strict same-pan end/transition join remained
+false. A terminal cancellation boundary was not instrumented, so this
+cannot distinguish cancellation from an unobserved end callback.
+
+The four ownership sites never armed: **no live factory→return/list→push/
+assert verdict**, and no repair was applied. The final HMP again has its
+prompt/info/Home indicator near the bottom; this is not proof of completed
+dismissal or Home. The first touch delay and missing terminal callback
+justify one narrow end/cancel capture, with one bounded settled retry;
+they do not justify weakening the completed-dismissal gate. Static
+`0x22436f004` is correctly `SBHomeGesturePanGestureRecognizer touchesEnded:`.
+Optional new diagnostic boundaries are UIKit pan cancellation
+`0x184ecf5cc`, screen-edge touchesEnded `0x184f31234`, CoverSheet gesture-end
+`0x22467ca6c`, and its state-getter return comparison `0x22467cb38`.
+These observe raw callbacks/state without calling setters or methods.
+
+Child SHA-256
+`5b9fc503bed5b2921d719173f570a85ddfa4526fa1653583efc64d2305185db5`;
+`qemu-img check -U` passed; zero kernel-panic/critical-reboot serial lines.
+Evidence: durable P436 recovery directory, `analysis.coverage-verdict.json`,
+`events/lock-gesture.jsonl`, `visual-ready-relay.log`, source pack and HMP
+frames. A408 scanout remains unchanged. The ownership repair plan remains
+unapplied pending a complete live identity/list join.
+
+The P436/P434 raw lock-manager comparison is retained as
+`analysis.lock-transition-vs-P434.json`. At the user-gesture boundary,
+P436's `_isUILocked` byte is `01` and d0/d1 are zero; P434's byte is `00`
+and d0 is `1`, d1 about `1.00158`. Symbol `0x224c49560` is
+`lockScreenViewControllerWillPerformTransitionToFinalValue:forUserGesture:withVelocity:animated:`;
+d0 is the **final value**, not an intermediate progress sample. This
+difference reinforces the unconfirmed-dismissal classification without
+assigning cancellation or security-state causality.
+
+### P437: live IOSurface factory → missing ownership → push assertion closed
+
+`UI_CLASS16_REFRESH60_DM_PLUGIN437_P276_SW_TRACKING3_FROM425` retained the
+exact P425/P276 parent, TC and natural A408 profile. The initial Recap touch
+timed out at the host's 120 s ACK bound, then the guest logged its stream
+creation/touch ACK; it had not finalized/submitted a pan. The bounded
+retry completed the retained stream and reached the strict same-recognizer
+shouldBegin→began→touchesEnded→transition join at `1792272200.890102`.
+The inherited screen-edge and CoverSheet end boundaries ran too; no
+cancellation was observed for that completed pan. Initial timeout is not
+a cancellation verdict. Ordinary post-dismissal Home down/up were ACKed.
+
+All four SW sites armed after that transition (source SHA-256
+`0d13f389d250a2c213892627a5d54e9aa677fb735a9b03c5fb4560b9b178e880`).
+On backboardd TPIDR `0xffffffe57651a0c0`, call `0x18455f238`
+(`1792272251.835368`) passes Context `0x78acf94000` and IOSurface
+`0x78ad161640` to the reviewed SW factory `0x1846c253c` (runtime
+`0x19ed1a53c`, exact 192-byte reference hash). Return `0x18455f23c`
+produces Surface `0x78acffc8c0`; the same caller SP `0x105cf3f90`, Context,
+IOSurface and Surface reach push `0x18455f258` at `…2251.855395`.
+The Surface's `+0xc0` points to the original IOSurface, flags remain `0xf`,
+and both tracking lists have complete null-terminated walks excluding it
+at return and push. The selected list is Context `+0x60` (two other
+Surfaces); `+0x68` has one other Surface. Then the same pair reaches
+`found != slist->end ()` at `0x18445e2cc` / runtime `0x19eab62cc`
+(`…2251.863090`). Dimensions/stride are 1179×2556/4864.
+
+`analyze_sw_surface_tracking.py` validates **one complete live join and
+one missing-registration-plus-matched-assert**. This closes the prior
+corpse-only ownership gap. The run stopped on that named assertion, with
+no repair applied. It does not prove Home success or assign the Surface
+nonblack content; the established natural scanout path is unchanged.
+Child SHA-256 `214e747826be7e4ff83c244e0d3a83303b906596ed0165e3047fb0b33e62eba2`;
+clean `qemu-img check -U`, zero kernel-panic/critical-reboot lines. Durable
+records include source pack, events, HMP timeline and
+`analysis.live-sw-tracking.json` / `analysis.coverage-verdict.json`.
+Next is a disposable compatibility child calling the existing native
+`Context::track_surface` on the original nonnull SW factory result; retain
+original allocation/IOSurface ownership, assertions, rendering and A408.
+
+P438 completed that child but produced only `SW_SURFACE_TRACKING_READY` after
+the accepted-dismissal marker. No watched factory/return/push/assert boundary
+was sampled, so it cannot be scored as either a repair pass or failure. The
+first unresolved edge is before factory entry; no Context/Surface/list
+comparison was reached. The P438 probe silently discarded non-`backboardd`
+hits at shared-cache addresses. A narrow follow-up diagnostic now records a
+capped first hit for each `(site, PID, process)` before that filter and logs
+resolved breakpoint locations; it does not alter the guarded repair or the
+five watched addresses.
+
+The same P438 run acknowledged Home input and captured 428 natural A408 rows
+over 289.36 seconds after Home, including six exact full-frame source/HMP RGB
+matches. The last source and HMP hashes both equal
+`88ab7a377c999919581dce92938ef087eca846eaf8fdf3e2dc789e9de2a56ebd`. The
+final screen is Setup Assistant's language chooser, not Home. The user-visible
+path therefore progressed after dismissal while the SW ownership boundary
+remained unobserved. P438 artifacts, child SHA, clean qcow check and empty
+panic scan are under the durable `PLUGIN438_P276_SW_REPAIR1_FROM425`
+recovery record. The conditional unpatched control remains deferred because
+P438 did not pass the ownership boundary.
+
+P515 did not contradict the on-canvas Appearance Continue measurements. The
+P515 child was a P514 descendant that presented `BuddyLanguageController` on
+the key window after an accepted lock dismissal. Its generic forward-button
+scan found zero button actions because the current page is a language table;
+no action was dispatched. The first walk also hit a missing `_call` helper in
+the view scanner, which is corrected in the current source to use its existing
+`arm_call` routine. Neither observation is a Continue failure. The final P515
+frame is a separate dark Cover Sheet state, not an Appearance frame.
+
+P516 continues from a fresh child of P514. It loads a dedicated, capped
+language-row probe alongside the previously validated native Appearance and
+multilingual Continue probes. The English row is selected only if the live
+Buddy controller is attached to the key window, its `UITableView` is attached
+to that same window and delegated to that controller, and row `(0,0)`'s live
+cell is `BuddyLanguageLocaleCell` with decoded text exactly `English`. It
+then asks UIKit's table selection path to notify the delegate. There is no
+OCR gate, scroll, coordinate tap, controller-state write, or display change.
+The probe has passed Python syntax checks and its installer ran on P516, but
+the language-row scan itself was not exercised on a live controller.
+
+P516 did not produce a Setup-navigation verdict. Its LLDB log contains the
+P515/P501 lifecycle probes and the P516 language-row `READY` marker, but no
+P505 `PROBE_ARMED` or `SETUP_RUNLOOP_CONTEXT_SELECTED`: the composed installer
+wrapped P505's `_finish_view_scan` and `_after_getter` callbacks without
+calling `p505.install`, so no live controller scan could invoke the wrapper.
+The Home wake key and all 32 Recap swipe events were acknowledged, but the
+only transition record had `gesture_sequence_confirmed=false` and
+`dismissal_gesture.confirmed=false`; the strict accepted-dismissal gate never
+opened. The child was stopped as a probe-coverage miss, not a Setup failure.
+Its clean image check, logs, frame samples and source pack are in the durable
+`UI_CLASS16_REFRESH60_DM_PLUGIN516_NATIVE_ACTION_FROM514` record. The combined
+installer now arms P505 before P516 wraps its scanner; the next child must
+show P505 runloop readiness and a genuinely accepted lock dismissal before
+any language-selection result is scored.
+
+P517 validates that corrected composition and reaches the strict accepted
+lock-screen dismissal marker. P505's armed runloop scanner resolved
+`SBCoverSheetWindow` before the swipe, then observed `SBHomeScreenWindow` with
+`SBHomeScreenViewController` at `1792437298.850`, followed by
+`SBMainSwitcherWindow` / `SBSwitcherViewController` at `1792437360.471`.
+Across the recorded key-window walks, no attached Buddy controller or
+Appearance/Language action was found; the separate P516 language selector
+therefore did not fire. This is a state/window coverage outcome, not a failed
+Continue or English selection. P505 still could not resolve
+`UIApplication.windows`, so the walk is limited to the key window and does
+not establish that no other app/window exists. One subsequent native Home-key
+relay was acknowledged, but no later controller sample was recorded. Natural
+A408 timeline output remained empty and sampled HMP frames were uniformly
+black in this child; this does not revise the previously proven scanout path.
+
+P517's child `ui-class16-refresh60-dm-plugin517-native-action-from514.qcow2`
+is durable under `boot1/`, SHA-256
+`177a698c742cb7a7f925930808b84d9fd02b1b1e87421ecfdb39ece8a3840e96`;
+`qemu-img check -U` found no errors and the panic scan is empty. Its accepted
+transition, relay log, frame samples, HMP images, LLDB/serial logs and source
+pack are in `recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN517_NATIVE_ACTION_FROM514`.
+The next experiment is based on the durable P486 Appearance checkpoint and
+will invoke only the same measured native Buddy action when that live
+controller/action is present.
+
+P518 is a valid accepted-dismissal run, not a Continue failure. The matched
+Cover Sheet pan ended at guest time `1792438191.762`; the accepted transition
+was recorded at `1792438196.404`. The native Continue module was loaded, but
+no Appearance target/action result was produced before observation stopped.
+The lifecycle rows after acceptance cover only about 84 seconds and show
+poster/switcher and widget-renderer controllers; they do not show a live Buddy
+Appearance controller. P505's auxiliary inventory resolved only the key
+`SBCoverSheetWindow`, and its setup-runloop context changed after the scan
+window, so its empty result is not an all-window or all-thread negative.
+
+P486 provides the relevant timing control: its accepted dismissal was at
+`1792377277.261`, and the first stable Appearance frame was at
+`1792377667.748`, about 390 seconds later. P518 ended more than five minutes
+before that comparable Appearance arrival. Its durable child
+`ui-class16-refresh60-dm-plugin518-native-continue-from486.qcow2` has SHA-256
+`681f10f873c4a05d4cddce4c92b8da1607715ac88613618b1ec49f1d723b5f8f`; the image
+check passed and the panic scan is empty. The corrected next cut is a full
+post-dismissal window on a fresh P486 child. It keeps the proven native
+`BuddyAppearanceController.continueTapped` registration/enabled/transition
+guard and invokes only UIKit's registered action when that exact live control
+is current. OCR and scrolling do not gate or attempt the Continue action.
+
+#### P519: button hierarchy and blank source pixels are separate evidence
+
+P476/P485's UIKit result does not conflict with the Appearance screenshots:
+the enabled, on-canvas `OBBoldTrayButton` and registered
+`BuddyAppearanceController.continueTapped` action are present in UIKit, while
+the source frame's white tray region lacks the rendered title. OCR and another
+scroll therefore cannot decide whether the native action exists; the live
+registered action is the right continuation path once that controller is
+current.
+
+P519 did not reach that action gate. Its durable child
+`ui-class16-refresh60-dm-plugin519-native-continue-from486-fullwindow.qcow2`
+has SHA-256
+`7f029ae25f91f1a85c260e03e9d661619f8b22438ba49052cfce23abf442f560`, passed
+`qemu-img check -U`, and has an empty panic scan. Two 32-step Recap swipes
+were host-acknowledged, but there were no guest CoverSheet-dismiss-began,
+pan-ended, or accepted-pan events; the transition marker had
+`gesture_sequence_confirmed=false`. The final sampled HMP frame was the black
+Lock screen with its swipe prompt, so P519 is a pre-Appearance input/coverage
+miss, not a Continue or rendering verdict.
+
+P519 did log `BuddyLanguageController` push/view lifecycle events, including
+`viewDidAppear`, but its boot-captured
+`p516_native_language_row_callbacks.py` SHA-256 was
+`e998f6a2d0faf3934636a9a0a1592b81efd900e362699ef1cac554483dda6440` and
+predates the direct-controller view-scan fix currently in the workspace
+(`eb3b545df91bbb4f39d1face227980350a59af560d7f07480badc3e3945ecbd0`). No
+language table scan/English selection, Appearance action gate, or native
+Continue result was produced. P520 uses the durable P519 image as its parent
+and loads the corrected probe before boot. Runner:
+`tools/re/run_plugin520_native_continue_from519_langviewfix.sh`.
+
+#### P520: accepted pan, but the native Continue action was never reached
+
+P520's guest accepted the CoverSheet pan at `1792441283.698`; the recognizer
+began and ended the same gesture, and the accepted-transition marker confirmed
+the sequence. The durable HMP frame at `1792441805.443` (about 522 seconds
+later) still shows the Lock Screen swipe prompt. This is not an Appearance
+Continue failure: no `BuddyAppearanceController` action candidate or
+`native-continue-result.json` was produced, and no additional input was sent.
+
+P516 observed a `BuddyLanguageController` `viewDidAppear` and armed its direct
+`view` getter (`controller=0x78e32f4000`, SP `0x16b2beb50`, TPIDR
+`0xffffffedb3480950`, IMP `0x1a07fd938`) at `1792441387.168`. There is no
+matching `LANGUAGE_DIRECT_VIEW_SCAN_BEGIN`, English-row selection, or recorded
+getter return. The getter was redirected from the lifecycle breakpoint, but
+the old return matcher only ran at P505's separate runloop-observer PC. That
+left `p505.STATE.stage` occupied and prevented the attached Buddy scan and
+forward-action pass from advancing. A later `BuddyLanguageController
+viewDidAppear` used another instance (`0x75a72ec000`) at `1792441504.011`; it
+does not prove the earlier getter returned or that the visible page changed.
+
+P520 was stopped after this probe gap was established. Its durable child
+`ui-class16-refresh60-dm-plugin520-native-continue-from519-langviewfix.qcow2`
+passed `qemu-img check -U`, and its panic scan is empty. Natural A408 scanout
+stayed enabled and unchanged. P521 handles the redirected getter's return at
+the exact saved lifecycle PC/SP, then continues through the measured English
+UITableView selection and the registered native Appearance target/action.
+P476/P485's on-canvas UIKit action evidence remains the reason not to OCR-gate
+or scroll for Continue.
+
+#### P522: P486-child boot did not test Appearance Continue
+
+P522's child of the P486 disk did not expose a live Buddy Appearance page or
+the measured `OBBoldTrayButton` target/action to the callback. It therefore
+produced no Continue result. This is a coverage/lineage miss, not a failure of
+the native action. The P486 frame shows the Appearance preview, accessibility
+chip, and selected Default option; P476/P485 independently measured an enabled,
+on-canvas Continue control registered to
+`BuddyAppearanceController.continueTapped` for `TouchUpInside`. A white or
+unreadable title in HMP does not revoke that UIKit registration, so OCR and
+scrolling are not prerequisites for advancing.
+
+P523 returns to the known-positive fresh-child route from P483. The existing
+driver replays only the prior language/country selection steps. After its
+country-to-Appearance gate opens, the P505 scanner matches the live button,
+current Appearance controller, registered selector/event, attached window,
+and enabled state before invoking UIKit's native
+`sendActionsForControlEvents:`. It writes an action-result record from the
+same callback return. Generic Buddy forward actions remain disabled until
+that exact Appearance action returns; then later enabled native controls may
+continue Setup. Continue dispatch is not gated on OCR or scrolling.
+
+Correction after the first P523 bootstrap attempt: LLDB rejected its callback
+registration because the wrapper monkey-patched a P505 callback with a Python
+function owned by a different module (`could not find callable:
+p505_live_native_setup_action.runloop`). The guest was stopped after this
+instrumentation error; no native action candidate or Continue result was
+scored. P523's child passed `qemu-img check -U` and had no panic record. P524
+moves the action-start gate, post-return generic-action policy, and result-file
+write into P505 itself, leaving LLDB's callback function in its defining
+module. It retries from a fresh P483 child; P523 is not an action verdict.
+
+P524 reached shell return and armed the existing country/input observers, but
+P505 then raised `NameError: os is not defined` while reading the gate
+environment. The action scanner therefore remained uninstalled; P524 was
+stopped immediately and is not an Appearance-action result. P525 includes the
+missing `os` import in P505 and repeats the same fresh P483 route. The exact
+native action remains gated only by the live controller/registration/window/
+enabled checks, not by screenshot text or a scroll.
+
+P525 confirmed the next loader boundary: LLDB still could not resolve
+`p505_live_native_setup_action.runloop` because P523's wrapper used ordinary
+Python import rather than LLDB's `command script import`. No P505 runloop scan
+or Appearance action occurred. P526 explicitly loads P505 through LLDB's
+script-module importer before calling `install`, so its callback remains
+resolvable in the defining module. P525 is another callback-setup failure,
+not a Setup or Continue verdict.
+
+#### P543: Cocoa mouse relay reaches Home; Settings launch remains unproven
+
+P543 is a fresh child of the P540 Home-positive disk, with natural A408 scanout
+and the Cocoa display unchanged. The guest's legacy `DVM_INPUT_READY
+protocol=1` helper was paired with `tools/input/relay.py --backend recap`,
+which relays QEMU absolute-pointer events as native Recap touch records. The
+first upward swipe woke the dim Lock Screen (bottom controls appeared); a later
+upward mouse gesture changed the HMP frame to the Home grid. This demonstrates
+that the Cocoa/QMP mouse event path can reach the guest's touch helper and
+produce a visible Lock-to-Home change. No gesture callback was armed, so this
+is a visual/input result, not an internal accepted-transition trace.
+
+The Home frame contains visible clock/date, widget text (`No Events Today`),
+and Search text. App-name labels, including `Settings`, are absent from the
+source frame, although the Settings gear icon is visible. A tap near the gear
+and a corrected tap at its measured center (742,1988) framebuffer pixels were
+both acknowledged by the guest helper. The corrected tap produced a transient
+screen transition, but the settled HMP frame returned to Home; a Settings
+screen or app launch was not established. Helper ACKs prove native event
+submission only. P543 therefore answers that some text is visible and mouse
+gestures can affect the UI, but does not yet prove Settings is launchable by
+icon tap. The live Cocoa guest was left at Home with the relay running for
+direct interactive follow-up; do not run `qemu-img check` until it is stopped.
+
+The child is `ui-class16-refresh60-dm-plugin543-native-home-cocoa-mouse-recap-from540.qcow2`.
+Frames, launch manifest, and captured logs are archived under
+`recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN543_NATIVE_HOME_COCOA_MOUSE_RECAP_FROM540/`.
+
+P543 live follow-up correction: a raw HMP PPM screendump was initially
+converted directly to PNG and looked diagonally skewed. That appearance is a
+known export artifact: this QEMU PPM writer emits 3540 bytes per row for a
+1179-pixel RGB image whose packed row is 3537 bytes. The three padding bytes
+make a normal P6 reader misalign rows; this is not evidence of a guest layer
+transform. A direct HMP PNG capture (`screendump … -f png`) at host time
+2026-10-19 21:24:23 PDT is upright and shows the normal Home grid, clock/date,
+widget text, and Search, with app-name labels still absent. Its 1179x2556
+SHA-256 is `442289ff1c28fb0066241b4ff42baf295f8d39ce77c5136c5b9959b057b59fa5`.
+The raw PPM follow-up files are invalid for visual scoring. A later QMP tap
+retest was not delivered: the original relay had exited, no guest input ACK
+was produced, and a direct release plus helper ping timed out. Therefore that
+retest has no UI result; the earlier P543 Settings taps remain helper-ACKed
+but lack a SpringBoard/app-launch observer. The guest remains live, so its
+image check is deferred until shutdown. Capture metadata is in
+`recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN543_NATIVE_HOME_COCOA_MOUSE_RECAP_FROM540/live-followup-corrected.json`.
+
+P543 relay-reconnected tap follow-up supersedes the unscored late-retap note
+above. The continuous Recap relay was restarted and QEMU reported its UART
+chardev connected. A Settings-center press/release at framebuffer pixel
+`(742,1988)` (normalized input `(20622,25500)`) received helper ACKs for both
+edges. Direct HMP PNG captures at 3s, 20s, 60s, and 75s after the tap all show
+the Home grid; the 3s/20s captures are byte-identical, and the 75s frame is
+again the normal complete grid. No Settings page or app-label text appeared.
+This closes the input-helper delivery attempt, not UIKit hit-testing or app
+launch: no SpringBoard target/action observer was active. The HMP PNG RGB
+hashes match the corresponding natural A408 `rgb_sha256` records in
+`/tmp/dvm/P543_MOUSE_RECAP1/stderr.log` (lines 252189, 256044, 257571, and
+258267), confirming these are the guest scanout pixels. The current frame is
+archived as `frames/live-continuation.png` with RGB hash
+`b2f0833bc76181c39be9aab5482bd0decf204a1bf70598d1c40acb294413a582` and
+matches A408 log line 258267. The guest is still running; image integrity is
+deferred until it is shut down. Full frame hashes and the relay ACK rows are in
+`settings-tap-reconnected-followup.json` under the same recovery-record folder.
+
+P543 finalization correction: the native guest was subsequently quit cleanly
+after the relay follow-up. Its final child check passed; the archived launch,
+input, and screenshot records remain valid. No Settings app launch was
+observed, so the tap result remains “helper accepted the event, UI action
+unproven.” P544 separately verified by read-only guest memory that the
+reviewed Settings image-scale replacement and its CodeDirectory hash slot are
+already present in the P540 parent. P544's guarded installer made no writes.
+The next useful test is a fresh child of P540 with the known Home profile and a
+SpringBoard hit-test or app-launch discriminator; do not reuse P543 or stack a
+duplicate cache patch.
+
+#### P545: Lock Screen and helper readiness reached; input transport lost
+
+P545 is a fresh P540 child with the same TC, Cocoa profile, and natural A408
+scanout. It reached an awake Lock Screen; HMP PNG `frames/lock-ready.png`
+(1179x2556, SHA-256
+`900a0d0fbda777945676e4655d5e50c4fd42d31ac1ec04bbcee5f1d225aa7bb6`) shows
+the clock, bottom controls, and Home indicator. The clock changed in later
+HMP captures, so the guest continued presenting Lock Screen frames.
+
+The v7 input helper emitted `DVM_INPUT_HOME_READY` and
+`DVM_INPUT_READY protocol=1` at serial lines 93672 and 93684, about 35 minutes
+after QEMU launch. Before trying the accepted upward swipe, the already
+connected long-lived relay was stopped. This disconnected QEMU's
+`input_uart` chardev. Subsequent one-shot swipe and release packets were
+logged as sent by the host relay but received no guest ACK; QEMU's `info
+chardev` reported `input_uart` disconnected, and the serial log contains no
+matching `DVM_INPUT_RECAP` or `DVM_INPUT_ACK`. Those packets therefore have no
+guest/UI result and P545 does not test dismissal or Settings launch.
+
+The child was stopped and passed `qemu-img check -U`; no panic marker was
+found. Artifacts are under
+`recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN545_SETTINGS_TAP_FROM540/`.
+For the next child, establish the persistent relay after QEMU creates its UART
+socket and keep that same connection open through helper readiness and input.
+Do not reconnect or interpret a host-side send log as guest delivery.
+
+
+#### P546: Lock Screen present; Recap input ACK was delayed, then transport stopped consuming
+
+P546 is a fresh P540 child with the same TC, Cocoa display profile, and natural A408 scanout. It reached `DVM_INPUT_HOME_READY` and `DVM_INPUT_READY protocol=1`; HMP showed the awake Lock Screen, and the clock advanced from 10:54 to 10:56. The first swipe's host relay deadline was too short: its initial Recap down packet was ACKed by the guest only after the relay's 10-second timeout. The remaining swipe motion never reached the guest.
+
+A one-shot release on a new connection was ACKed and completed Recap lift/finalization. A second persistent watcher used a 60-second ACK bound, but after sending the next Recap down it received no ACK; guest serial showed no new input-stage record. A later non-touch protocol ping also timed out. No duplicate gesture was sent. The final HMP PNG remained the Lock Screen; no dismissal or Settings launch is claimed. The child was closed cleanly and passed `qemu-img check -U`; no panic/reboot was observed. Full action/relay/serial/frame records are in `recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN546_SETTINGS_TAP_PERSISTENT_RELAY_FROM540/`.
+
+This narrows the input issue: the guest can receive and submit the first delayed Recap event and a release, but input consumption stopped after reconnect; the exact receiver/transport boundary remains unproven. Next, test one fresh P540 child with the persistent relay connected only after `DVM_INPUT_READY` and a 120-second first-ACK deadline, keeping that connection open throughout. Do not score host-side events without guest ACK and an HMP UI change.
+
+#### P547: delayed relay connection never reached helper readiness
+
+P547 was a fresh P540 child with the same TC, Cocoa display profile, and
+natural A408 scanout. Unlike P546, no input relay was connected during boot;
+the plan was to attach after `DVM_INPUT_READY` with a 120-second ACK bound.
+After about 53 minutes, the helper had emitted `DVM_INPUT_START` and
+`DVM_INPUT_INITIALIZING`, then reached `dlopen.begin` for
+`Recap.framework` (serial line 704), but had emitted neither the matching
+`dlopen.return` nor `DVM_INPUT_READY`/`DVM_INPUT_HOME_READY`. No touch packet
+was sent, so P547 has no input result.
+
+An idle relay connected after the first 40-minute observation; QEMU accepted
+the UART connection, but readiness remained absent for a further ten minutes
+while guest serial/IOMFB power logs continued. HMP frames at 40 minutes and
+ten minutes after the late connection are both black and byte-identical
+(SHA-256 `d312521cf1e978b08337f0c936bdf71f2d7a61a3259dc5bd07792494c5cf42b9`).
+This is a helper-readiness miss under delayed connection, not a touch failure
+or an A408 regression. The guest was quit through HMP and the child passed
+`qemu-img check -U`. Full records are under
+`recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN547_SETTINGS_TAP_READY_RELAY_FROM540/`.
+
+The next discriminator is a fresh P540 child with the persistent relay
+connected before guest/helper initialization and a 120-second ACK bound. This
+keeps the early-connection condition that reached readiness in P546 while
+allowing its delayed first ACK time to complete. Send no duplicate event after
+an ambiguous timeout; require guest ACK and visible HMP change to score input.
+
+#### P548: early relay reaches Home; Settings launch remains unresolved
+
+P548 is a fresh P540 child with the same accepted `system.tc`, Cocoa display, and natural A408 scanout. The Recap relay was connected before helper startup with a 120-second ACK bound. `DVM_INPUT_READY protocol=1` arrived after about 1605 seconds; one 32-step upward QMP gesture produced 32 sent/32 ACKed states. HMP showed the recognizable Home grid at 5, 30, and 60 seconds. Clock, widget content, Search, and app icons are visible; app-name labels beneath icons are absent.
+
+A QMP mouse down/up at normalized `(20622,25500)` (about framebuffer pixel `(742,1990)`, the Settings gear center) was ACKed through the older Recap `R` path. Its delayed HMP capture remained Home; the file named `after-settings-tap-5s.png` was actually taken about 95 seconds after the tap because an ACK-count wait hit its 90-second deadline. A separate native one-shot `P` tap at the same point was ACKed in about 405 ms. HMP showed Home at 5 seconds, a mostly white surface with status chrome at 20 seconds, then Home again at 55 seconds. This transient frame does not identify the app or prove a crash; serial/QEMU logs contain no explicit SpringBoard/Settings crash record. Helper ACK proves submission only, not SpringBoard hit-testing or app-launch completion. Natural A408/scanout was unchanged.
+
+P548 was quit through QMP; the child passed `qemu-img check -U` and no panic/reboot was observed. Child SHA-256: `94836cfe196c0db56d753ad7928897be42efa9617dfd7cdfb877e4bf3ad67a5a`. Frames, QMP actions, relay ACKs, serial, QEMU output, and manifest are archived under `/Users/steve/dvm-artifacts/bp-patched-dev6/boot1/recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN548_SETTINGS_TAP_EARLY_RELAY120_FROM540/`. Next useful discriminator is a low-rate launch/scene observer on a fresh child, gated on the native Settings tap; another tap-only boot is not justified.
+
+#### P549: native Settings tap opens a stable, readable Settings page
+
+P549 is a fresh child of the durable P548 child, using the same TC, Cocoa
+window, and natural A408 scanout profile. Home was visible before the tap. The
+host issued 34 QMP pointer states for the upward gesture; the Recap relay
+coalesced motion into 14 packets, all 14 ACKed successfully, including the
+endpoint and button release. The driver incorrectly waited for 34 relay ACKs
+and was stopped after its ACK-count timeout. We did not replay the gesture.
+The HMP frame independently confirms Home (`Search` and the app grid), so this
+is a valid Home-to-Settings experiment but not a claim that all 34 pointer
+states were individually delivered.
+
+A single native `P` tap at normalized `(20622,25500)` was ACKed successfully.
+Five seconds later HMP still showed Home; at 20 seconds the Settings page was
+fully visible, and it remained visible at 55 seconds. The screenshots are
+1179x2556. OCR finds the `Settings` title and rows including Wi-Fi, General,
+Accessibility, Appearance, Display & Brightness, and Home Screen & App Library.
+This proves that the Settings icon can be tapped and the app's text is
+rendered. The earlier absence of app-name labels on the Home grid remains a
+separate guest-composition issue. Several Settings rows display blue question
+mark glyphs or no leading icon; that is not a scanout failure.
+
+The tap-gated observer recorded launchd spawning
+`/Applications/Preferences.app/Preferences` with
+`XPC_SERVICE_NAME=UIKitApplication:com.apple.Preferences[...]`; the matching
+spawn returned `x0=0` with child PID 353. Preferences then emitted FBS scene
+create, workspace-request, client-request, and scene-update callbacks. The
+bitmap factory was reached with 28x28 logical dimensions, raw scale 1.0, and
+non-null input CGImage pointers; the nil-CGImage trap did not fire. This is
+consistent with the stable visible page, but does not identify the
+question-mark row glyphs' source assets or prove every row icon loaded.
+
+The driver helper's exact-ACK-count assumption is now corrected: it should
+accept a coalesced gesture only after the terminal release is ACKed and all
+relay packets have completed. P549's helper exit code 143 records the manual
+stop after its bad wait; the gate probe returned 0, the guest exited via the
+planned stop marker, the panic scan was empty, and `qemu-img check -U` passed.
+Natural A408 scanout was unchanged. The durable child SHA-256 is
+`1517fb9612d4078529a757f22d5770819ebea10bb4420a32f575eee761993667`; frames,
+input ACKs, event log, LLDB trace, serial, stderr, and checks are under
+`recovery-records/UI_CLASS16_REFRESH60_DM_PLUGIN549_SETTINGS_APP_TRACE_FROM548/`.
