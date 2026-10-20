@@ -332,10 +332,34 @@ How it fits together:
   which is what makes this usable from Windows/ Linux hosts too. QEMU's monitor
   `screendump file -f png` grabs the screen headlessly.
 
-This is the kernel's boot framebuffer, not a display controller: iOS/ macOS
-userspace (backboardd/ WindowServer) talks to the display through the DCP
-coprocessor on every chip this project supports, which is not emulated, so GUI
-apps don't draw yet. See "Where this is going" below.
+This is the kernel's boot framebuffer, not a display controller. In the stock
+Quickstart, iOS/macOS userspace (backboardd/WindowServer) still lacks a
+faithful DCP implementation, so this path by itself does not bring up the GUI.
+The experimental P276 research profile below can route naturally submitted
+guest surfaces to QEMU scanout; it is separate from the stock Quickstart and is
+not a claim that physical DCP firmware is emulated.
+
+## Experimental iOS Home capture (P276 research profile)
+
+![Experimental iPhone 16 Home Screen rendered by the guest and captured from QEMU](docs/images/p276-native-home.png)
+
+This is a guest-rendered SpringBoard Home Screen from a prepared iPhone 16
+P276 research run. The guest naturally submitted the surface through its A408
+path, and the opt-in QEMU scanout path displayed those pixels. The capture is
+useful evidence that this research profile can show UI; it is not a faithful
+H17P DCP-firmware implementation. This frame also has a black background and
+missing app-title labels, so it is a development result rather than a finished
+device experience.
+
+To reach this screen in the research environment, start from the prepared P276
+checkpoint and its matching iOS boot inputs and accepted system trust cache,
+launch the research profile with `DARWIN_DCP_IOMFB_SCANOUT=1` and a Cocoa or
+VNC display, then complete Setup and send the accepted native dismissal/Home
+input. Capture the result with QEMU's HMP `screendump` command. The checkpoint,
+Apple firmware files, trust cache, and current experiment runner are local
+research assets and are not included here, so this is not yet a clean-clone,
+one-command recipe. The stock `./run.sh` Quickstart still demonstrates the
+boot console, not this prepared UI path.
 
 ## 5. Add custom programs to the VM
 
@@ -702,12 +726,12 @@ State as of the framebuffer work:
 
 - ✅ Screen: XNU boot framebuffer shown through QEMU (cocoa/ sdl/ vnc), keyboard
   from the window into the guest console.
-- ❌ GUI userspace: on A14+/ M1+ the display is driven by the DCP coprocessor
-  (`/arm-io/dcp`, `disp0`) via RTKit mailboxes; `IOMobileFramebuffer` needs it.
-  Emulating the DCP's AP-side protocol (the part Asahi Linux reverse engineered)
-  is the big missing piece for `backboardd`/ `WindowServer`. You'd also need the
-  full OS root filesystem rather than the restore ramdisk, SEP for keybags, and
-  a software renderer path for CoreAnimation (no AGX).
+- 🧪 GUI userspace: the stock Quickstart remains a boot-console environment.
+  The separate P276 research profile has an opt-in native A408-to-QEMU scanout
+  path and has produced the experimental Home capture above. That host sink
+  does not emulate physical DCP firmware or make the research profile a
+  general-purpose iOS emulator; the prepared guest lineage and inputs are
+  currently local research assets.
 - 🟡 macOS route: the UniversalMac IPSW also ships `DeviceTree.vmapple2` and
   `kernelcache.release.vmapple`, i.e. the Virtualization.framework guest kexts
   (virtio, `AppleVirtualPlatform`). Booting that under `-M darwin` with virtio
